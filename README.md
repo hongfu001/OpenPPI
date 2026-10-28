@@ -1,6 +1,6 @@
 # prediction-inference
 
-面向 prediction-assisted inference 的 Python 算法库。目前实现 **ASI、RASI（稳健主动推断）、BAI（平衡主动推断）与独立两样本 PPI 的二元均值估计及终点 Wald 区间**。每种方法继承共同的 `Method`，统一检查输入并返回 `InferenceResult`。
+面向 prediction-assisted inference 的 Python 算法库。目前实现 **ASI、RASI（稳健主动推断）、BAI（平衡主动推断）、FTRL 查询策略与独立两样本 PPI 的二元均值估计及终点 Wald 区间**。每种方法继承共同的 `Method`，统一检查输入并返回 `InferenceResult`。
 
 ## 安装与运行
 
@@ -8,6 +8,7 @@
 python -m pip install -e '.[simulation,test]'
 PYTHONPATH=src:. python examples/asi_mean.py
 PYTHONPATH=src:. python examples/bai_mean.py
+PYTHONPATH=src:. python examples/ftrl_mean.py
 PYTHONPATH=src:. python examples/ppi_mean.py
 PYTHONPATH=src:. python examples/rasi_mean.py
 PYTHONPATH=src:. python main.py --reps 100
@@ -31,6 +32,7 @@ src/prediction_inference/
 │   ├── uniform.py     # Uniform：均匀抽样（PPI 基线）
 │   ├── asi.py         # ASI：Uncertainty、tune_tau
 │   ├── bai.py         # BAI：BalancedDesign、cube_sample（纯 NumPy 的 cube 方法）
+│   ├── ftrl.py        # FTRL：FTRLDesign（与当前行无关的无悔查询概率，推断用 ASI）
 │   └── rasi.py        # RASI：RobustDesign、BurnIn、select_burn_in、路径与稳健 ρ、交叉验证选 c、robust_active_label
 └── methods/
     ├── __init__.py
@@ -43,7 +45,7 @@ src/prediction_inference/
 - `dataset/judge_sim.py`：DGP 和返回 DataFrame 的 `make_judge_data`。
 - `model/learners.py`：预测模型封装；`model/judge.py`：评委均值模型。
 - `common/`：配置、通用工具（种子、输出、汇总、PPI 切分）和核心测试。
-- `examples/asi_mean.py`、`examples/bai_mean.py`、`examples/ppi_mean.py`、`examples/rasi_mean.py`：单次运行示例。
+- `examples/asi_mean.py`、`examples/bai_mean.py`、`examples/ftrl_mean.py`、`examples/ppi_mean.py`、`examples/rasi_mean.py`：单次运行示例。
 - `examples/simulations/`：仿真策略与重复实验入口；`online.py` 是序贯版 ASI（仅仿真使用，见下文）；`main.py` 保留兼容命令行入口。
 
 依赖方向：examples 可使用所有层；model、dataset 不依赖算法或示例；算法独立于 model、dataset、common。
@@ -77,6 +79,7 @@ from prediction_inference import ASI, BAI, PPI, RASI, Mean
 | `Uniform()` | `uniform.py` | 常数概率 `rho = budget / n`；配合 ASI 估计器即 PPI 基线 |
 | `Uncertainty(tau=.5)` | `asi.py` | `pi = (1-tau) * clip(eta*u, 0, 1) + tau*rho`，`eta = rho / mean(u)`，u 默认为 `2*min(p, 1-p)`（ASI 论文算法 1）；下限 `tau * rho`，截断可能使期望标注量略低于预算 |
 | `BalancedDesign(tau=.5)` | `bai.py` | BAI：与 `Uncertainty` 相同的概率，但用 cube 方法联合抽样，使 `sum(x * xi / pi) ≈ sum(x)`（见下文 BAI 一节） |
+| `FTRLDesign()` | `ftrl.py` | FTRL：`p_t` 只由前面各行的 Φ 决定，从 `tau/8` 升到 `tau = budget/n`（见下文 FTRL 一节） |
 | `RobustDesign` | `rasi.py` | RASI 第二批：主动规则 π ∝ 预测误差，沿预算保持路径向均匀插值（见下文 RASI 一节） |
 
 `Mean.sampling_scores` 是 `2*min(p, 1-p)` 的唯一定义位置。
@@ -119,6 +122,24 @@ request = select_for_labeling(predictions, target=Mean(), design=BalancedDesign(
 - **cube 方法**：`cube_sample` 是纯 NumPy 实现（官方经 rpy2 调用 R 包 `BalancedSampling`）。行先随机排序；飞行阶段每步在 q+1 个非整数行上沿平衡约束的零空间方向移动 π，并按鞅性质选择方向，使包含概率不变；着陆阶段逐个去掉最后一个平衡变量重复，最后剩余行独立抽取。复杂度 O(n·p³)，n=2000、p=1 时每次约 70 ms。
 - **方差**：设计方差用 Deville–Tillé 的平衡抽样方差近似（`cube_variance`，与官方 `estimate_cube_variance` 逐值一致），即残差 `Y - f` 对平衡变量做加权回归后的残差平方和。默认再加上 Hájek 加权的标签方差除以 n，使区间与 ASI、PPI 一样针对总体均值 E[Y]（对应论文定理 1 的 V0）；`BAI(finite_population=True)` 只保留设计方差，针对池中标签的均值，与官方代码一致。诊断信息给出 `design_variance`、`population_variance` 和各平衡变量的 `relative_imbalance`。
 - **验证**：按论文 Friedman 设定（预算 0.1、有限池口径、仿照官方的强收缩梯度提升）复现，传统主动推断区间宽度 0.369、BAI 0.245（缩小 34%，覆盖率均约 0.90；论文表 1 为 0.3305 → 0.1052，差异来自 XGBoost 与 sklearn 实现及数据量不同）。
+
+## FTRL 查询策略（一批）
+
+实现 Sfyraki & Wang（ICLR 2026）的查询策略，参照其补充材料中的代码。论文发现 ASI 的混合规则在均匀权重接近 1 时区间最窄，并证明：若查询概率不依赖当前行的协变量，用 Follow-the-Regularized-Leader 最小化 `Σ Φ_t / p` 时 `p_t` 收敛到预算上限 `τ = T_b/T`。闭式更新为
+
+`p_t = max(β, min(τ, -γ θ_{t-1}))`，`θ_t = θ_{t-1} - Φ_t / p_t²`，`θ_0 = 0`，
+
+默认 `β = τ/8`、`γ = 1/√n`，与官方一致。Φ_t ≈ `E[(Y - f)^2 | X]` 作为 `scores` 传入（二元且 f 校准时可用 `f(1 - f)`；官方用线性回归拟合残差平方）。`p_t` 只依赖第 t 行之前的 Φ，固定模型时整条序列在标注前即可算出，因此它是一个普通的 `SamplingDesign`；论文的估计量与区间与 ZC24 相同，推断直接用 `ASI()`：
+
+```python
+from prediction_inference import ASI, FTRLDesign, Mean, select_for_labeling
+
+request = select_for_labeling(predictions, target=Mean(), design=FTRLDesign(),
+                              scores=predictions * (1 - predictions), budget=400, random_state=42)
+result = ASI()(request.with_labels(annotate(request.indices)), target=Mean(), alpha=.05)
+```
+
+行顺序即到达顺序（官方每次试验随机打乱）。由于 `p_t ≤ τ`，期望标注数不超过预算；实际中 `p_t` 在一两行内就达到 τ，此后等同于均匀抽样，这正是论文的结论。论文完整的算法 1 还会在序贯过程中更新模型和 Φ，那属于序贯变体，核心库暂未包含。
 
 ## 独立两样本 PPI（四步）
 
@@ -211,10 +232,11 @@ python -m pytest
 
 `results_asi/config.json` 记录参数；`per_rep_final.csv` 保存 300 条逐次结果；`fixed_budget_comparison.csv` 保存三种策略的汇总。
 
-测试分四个文件：
+测试分五个文件：
 
 - `common/test_core.py`：ASI 校正公式与区间函数收到的 values、`Uncertainty` 的 η 与预算下限、`tune_tau`、`LabelRequest` 只含选点信息且 `with_labels` 校验标签数量、PPI 公式与切分，以及固定预测下 200 次 DGP 覆盖率。
 - `common/test_bai.py`：cube 抽样满足平衡约束且包含概率不变、`fixed_size` 的样本量、默认与带符号平衡变量的记录、方差函数与官方 `estimate_cube_variance` 逐值一致、BAI 与 ASI 点估计一致及方差分解，以及 150 次 DGP 覆盖率。
+- `common/test_ftrl.py`：查询概率与官方 `compute_pt` 循环逐值一致、从 β 单调升到 τ 且不超预算、`p_t` 不受当前行影响，以及 200 次 DGP 覆盖率。
 - `common/test_rasi.py`：三条路径的端点与预算、`RobustDesign` 逐行概率复现 `budget_path`、`scores=` 不影响默认选点、分步两批写法与便捷函数一致、与官方极小极大目标逐点一致、c=0 时 ρ=0 且 c 增大时 ρ 单调趋于 1、查询只发生在选中行、RASI 与 ASI 点估计一致，以及 150 次 DGP 覆盖率。
 - `common/test_online.py`：序贯版本的查询时机、历史保留、预训练更新、按标签数触发更新、`Exploring` 与周期性用完预算，以及固定模型下与 `select_for_labeling` 一致。
 

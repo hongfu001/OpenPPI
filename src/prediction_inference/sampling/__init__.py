@@ -3,9 +3,10 @@ from .base import SamplingDesign, LabelRequest, select_for_labeling
 from .uniform import Uniform
 from .asi import Uncertainty, tune_tau
 from .bai import BalancedDesign, cube_sample
+from .ftrl import FTRLDesign
 from .rasi import (RobustDesign, BurnIn, select_burn_in, robust_active_label, select_constraint,
                    robust_rho, budget_path, active_rule)
 
 __all__ = ['SamplingDesign', 'LabelRequest', 'select_for_labeling', 'Uniform', 'Uncertainty',
-           'tune_tau', 'BalancedDesign', 'cube_sample', 'RobustDesign', 'BurnIn', 'select_burn_in', 'robust_active_label',
+           'tune_tau', 'BalancedDesign', 'cube_sample', 'FTRLDesign', 'RobustDesign', 'BurnIn', 'select_burn_in', 'robust_active_label',
            'select_constraint', 'robust_rho', 'budget_path', 'active_rule']
