@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "prediction-inference"
+version = "0.1.0"
+description = "Composable sampling, mean estimation, and terminal inference"
+requires-python = ">=3.10"
+dependencies = ["numpy", "scipy"]
+
+[project.optional-dependencies]
+simulation = ["pandas", "scikit-learn"]
+test = ["pytest", "pandas", "scikit-learn"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "."]
+testpaths = ["common"]
