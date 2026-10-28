@@ -9,7 +9,11 @@ from ..targets import Mean
 
 
 class SamplingDesign(ABC):
-    """Maps outcome-free scores to sampling probabilities for one batch."""
+    """Maps outcome-free scores to sampling probabilities for one batch.
+
+    sample and record are hooks with independent-Bernoulli defaults;
+    joint designs such as cube sampling override both.
+    """
     @abstractmethod
     def calibrate(self, reference_scores, rho):
         """Calibrate from outcome-free scores and return this design."""
@@ -17,6 +21,14 @@ class SamplingDesign(ABC):
     @abstractmethod
     def probability(self, scores):
         """Return sampling probabilities for scores, fixed before any label is seen."""
+
+    def sample(self, scores, propensities, rng):
+        """Draw selection indicators; default is independent (Poisson) sampling."""
+        return rng.random(len(propensities)) < propensities
+
+    def record(self, predictions, observed_labels, queried, propensities):
+        """Build the inference record once labels are attached."""
+        return ActiveData(predictions, observed_labels, queried, propensities)
 
 
 def validate_calibration(reference_scores, rho):
@@ -66,7 +78,8 @@ class LabelRequest:
             raise ValueError('Require one label per entry of indices, in the same order')
         observed = np.full(len(self.queried), np.nan)
         observed[self.indices] = labels
-        return ActiveData(self.predictions, observed, self.queried, self.propensities)
+        build = ActiveData if self.design is None else self.design.record
+        return build(self.predictions, observed, self.queried, self.propensities)
 
 
 def select_for_labeling(predictions, *, target, design, budget, scores=None, random_state=None):
@@ -75,7 +88,8 @@ def select_for_labeling(predictions, *, target, design, budget, scores=None, ran
     Reads no labels. scores defaults to target.sampling_scores; pass
     outcome-free scores from elsewhere, such as RobustDesign.errors, to
     override them. The design is copied, calibrated on the batch's own
-    scores with rho = budget / n, and recorded in the returned request.
+    scores with rho = budget / n, draws the selection (independently
+    unless the design overrides sample), and is recorded in the request.
     Label rows request.indices, then call with_labels.
     """
     if not isinstance(target, Mean):
@@ -96,5 +110,7 @@ def select_for_labeling(predictions, *, target, design, budget, scores=None, ran
     if propensities.shape != p.shape or not np.isfinite(propensities).all() \
             or not ((propensities > 0) & (propensities <= 1)).all():
         raise ValueError('Sampling design must return probabilities in (0, 1]')
-    queried = np.random.default_rng(random_state).random(len(p)) < propensities
+    queried = np.asarray(design.sample(scores, propensities, np.random.default_rng(random_state)))
+    if queried.shape != p.shape or queried.dtype.kind != 'b':
+        raise ValueError('Sampling design must return one boolean per row')
     return LabelRequest(p, propensities, queried, design)

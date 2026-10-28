@@ -91,3 +91,25 @@ class RobustActiveData(ActiveData):
             raise ValueError(f'path must be one of {ROBUST_PATHS}')
         burn_in.setflags(write=False)
         object.__setattr__(self, 'burn_in', burn_in)
+
+
+@dataclass(frozen=True)
+class BalancedActiveData(ActiveData):
+    """ActiveData from cube (balanced) sampling.
+
+    balancing is the n x p matrix of balancing variables x used by the cube
+    method, which enforced sum(x * queried / propensities) ~ sum(x). The
+    variance estimator needs it because the queries are not independent.
+    """
+    balancing: np.ndarray = None
+
+    def __post_init__(self):
+        super().__post_init__()
+        balancing = np.array(self.balancing, dtype=float, copy=True)
+        if balancing.ndim == 1:
+            balancing = balancing[:, None]
+        if balancing.ndim != 2 or len(balancing) != len(self.queried) or not balancing.shape[1] \
+                or not np.isfinite(balancing).all():
+            raise ValueError('balancing must be a finite n x p matrix aligned with the other arrays')
+        balancing.setflags(write=False)
+        object.__setattr__(self, 'balancing', balancing)

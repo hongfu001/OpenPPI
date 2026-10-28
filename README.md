@@ -1,12 +1,13 @@
 # prediction-inference
 
-面向 prediction-assisted inference 的 Python 算法库。目前实现 **ASI、RASI（稳健主动推断）与独立两样本 PPI 的二元均值估计及终点 Wald 区间**。每种方法继承共同的 `Method`，统一检查输入并返回 `InferenceResult`。
+面向 prediction-assisted inference 的 Python 算法库。目前实现 **ASI、RASI（稳健主动推断）、BAI（平衡主动推断）与独立两样本 PPI 的二元均值估计及终点 Wald 区间**。每种方法继承共同的 `Method`，统一检查输入并返回 `InferenceResult`。
 
 ## 安装与运行
 
 ```sh
 python -m pip install -e '.[simulation,test]'
 PYTHONPATH=src:. python examples/asi_mean.py
+PYTHONPATH=src:. python examples/bai_mean.py
 PYTHONPATH=src:. python examples/ppi_mean.py
 PYTHONPATH=src:. python examples/rasi_mean.py
 PYTHONPATH=src:. python main.py --reps 100
@@ -21,7 +22,7 @@ python -m pytest
 src/prediction_inference/
 ├── __init__.py       # 对外接口
 ├── base.py           # Method、InferenceResult
-├── data.py           # ActiveData、PPIData、RobustActiveData
+├── data.py           # ActiveData、PPIData、RobustActiveData、BalancedActiveData
 ├── targets.py        # Target、Mean；唯一的抽样分数定义
 ├── _stats.py         # 私有公式：ipw_correct、wald_interval
 ├── sampling/          # 固定预算、固定模型的抽样：每个方法一个文件
@@ -29,10 +30,12 @@ src/prediction_inference/
 │   ├── base.py        # 公共部分：SamplingDesign 接口、LabelRequest、select_for_labeling
 │   ├── uniform.py     # Uniform：均匀抽样（PPI 基线）
 │   ├── asi.py         # ASI：Uncertainty、tune_tau
+│   ├── bai.py         # BAI：BalancedDesign、cube_sample（纯 NumPy 的 cube 方法）
 │   └── rasi.py        # RASI：RobustDesign、BurnIn、select_burn_in、路径与稳健 ρ、交叉验证选 c、robust_active_label
 └── methods/
     ├── __init__.py
     ├── asi.py        # ASI(Method)
+    ├── bai.py        # BAI(Method)、cube_variance
     ├── rasi.py       # RASI(ASI)
     └── ppi.py        # PPI(Method)
 ```
@@ -40,7 +43,7 @@ src/prediction_inference/
 - `dataset/judge_sim.py`：DGP 和返回 DataFrame 的 `make_judge_data`。
 - `model/learners.py`：预测模型封装；`model/judge.py`：评委均值模型。
 - `common/`：配置、通用工具（种子、输出、汇总、PPI 切分）和核心测试。
-- `examples/asi_mean.py`、`examples/ppi_mean.py`、`examples/rasi_mean.py`：单次运行示例。
+- `examples/asi_mean.py`、`examples/bai_mean.py`、`examples/ppi_mean.py`、`examples/rasi_mean.py`：单次运行示例。
 - `examples/simulations/`：仿真策略与重复实验入口；`online.py` 是序贯版 ASI（仅仿真使用，见下文）；`main.py` 保留兼容命令行入口。
 
 依赖方向：examples 可使用所有层；model、dataset 不依赖算法或示例；算法独立于 model、dataset、common。
@@ -48,10 +51,11 @@ src/prediction_inference/
 ## 方法接口
 
 ```python
-from prediction_inference import ASI, PPI, RASI, Mean
+from prediction_inference import ASI, BAI, PPI, RASI, Mean
 
-# record 是 ActiveData，data 是 PPIData，robust 是 RobustActiveData。
+# record 是 ActiveData，balanced 是 BalancedActiveData，data 是 PPIData，robust 是 RobustActiveData。
 # result = ASI()(record, target=Mean(), alpha=.05)
+# result = BAI()(balanced, target=Mean(), alpha=.05)
 # result = RASI()(robust, target=Mean(), alpha=.05)
 # result = PPI()(data, target=Mean(), alpha=.05)
 ```
@@ -66,17 +70,18 @@ from prediction_inference import ASI, PPI, RASI, Mean
 
 ## 固定预算抽样
 
-核心库只考虑固定模型、固定预算：先用模型预测，再一次性决定抽样概率，选出待标样本。三种抽样设计各占一个文件，都继承 `SamplingDesign`，通过 `calibrate(reference_scores, rho)` 校准，`probability(scores)` 返回标注前就确定的概率：
+核心库只考虑固定模型、固定预算：先用模型预测，再一次性决定抽样概率，选出待标样本。每种抽样设计各占一个文件，都继承 `SamplingDesign`，通过 `calibrate(reference_scores, rho)` 校准，`probability(scores)` 返回标注前就确定的概率。`sample(scores, propensities, rng)` 与 `record(...)` 是两个可覆盖的钩子：默认分别为独立伯努利抽样和返回 `ActiveData`，BAI 覆盖它们以做 cube 联合抽样并返回 `BalancedActiveData`：
 
 | 设计 | 文件 | 行为 |
 | --- | --- | --- |
 | `Uniform()` | `uniform.py` | 常数概率 `rho = budget / n`；配合 ASI 估计器即 PPI 基线 |
 | `Uncertainty(tau=.5)` | `asi.py` | `pi = (1-tau) * clip(eta*u, 0, 1) + tau*rho`，`eta = rho / mean(u)`，u 默认为 `2*min(p, 1-p)`（ASI 论文算法 1）；下限 `tau * rho`，截断可能使期望标注量略低于预算 |
+| `BalancedDesign(tau=.5)` | `bai.py` | BAI：与 `Uncertainty` 相同的概率，但用 cube 方法联合抽样，使 `sum(x * xi / pi) ≈ sum(x)`（见下文 BAI 一节） |
 | `RobustDesign` | `rasi.py` | RASI 第二批：主动规则 π ∝ 预测误差，沿预算保持路径向均匀插值（见下文 RASI 一节） |
 
 `Mean.sampling_scores` 是 `2*min(p, 1-p)` 的唯一定义位置。
 
-一批选点、标注、组装记录的流程三种设计通用（完整示例见 `examples/asi_mean.py`）：
+一批选点、标注、组装记录的流程所有设计通用（完整示例见 `examples/asi_mean.py`）：
 
 ```python
 from prediction_inference import ASI, Mean, Uncertainty, select_for_labeling
@@ -92,6 +97,28 @@ result = ASI()(record, target=Mean(), alpha=.05)
 `select_for_labeling` 不读取任何标签，按本批分数以 `rho = budget / n` 校准设计副本，返回 `LabelRequest`：全部 n 行的 `predictions`、`propensities` 与布尔 `queried`（复制并只读），以及已校准的设计副本 `design`（仅供诊断，不含标签）。可选参数 `scores=` 替换默认的 `target.sampling_scores`，例如 RASI 第二批传入预测误差。`request.indices` 是待标行号；`request.with_labels(labels)` 要求标签与 `indices` 一一对应，否则报错，返回 `ActiveData`。`ActiveData` 的预测、已观察标签、查询标记和查询概率一一对应，未查询标签必须为 NaN；构造时复制并保护数组。
 
 有独立历史标注数据时，可按 ASI 论文式 (12) 选 τ：`tune_tau(historical_predictions, historical_labels, target=Mean(), rho=budget/n)`，在 `np.linspace(.01, .99, 100)` 上最小化 `mean((Y-f)^2 / pi_tau)`。历史预测应来自未用这些标签训练的模型（例如训练集的留出部分）。
+
+## 平衡主动推断 BAI（一批）
+
+实现 Chen, Zhou, Peng & Wang（NeurIPS 2025）的算法 1，参照官方代码 `Uninfty/Balanced_Active_Inference`。抽样概率与 ASI 相同（τ 混合规则；论文的 τ 是主动部分的权重，等于这里的 `1 - tau`，取 0.5 时一致），但不再逐行独立抽样，而是用 cube 方法（Deville & Tillé 2004）联合选点：每行的包含概率仍为 π，同时满足平衡约束 `sum(x * xi / pi) ≈ sum(x)`。完整示例见 `examples/bai_mean.py`：
+
+```python
+from prediction_inference import BAI, BalancedDesign, Mean, select_for_labeling
+
+request = select_for_labeling(predictions, target=Mean(), design=BalancedDesign(tau=.5),
+                              budget=400, random_state=42)
+record = request.with_labels(annotate(request.indices))   # -> BalancedActiveData
+result = BAI()(record, target=Mean(), alpha=.05)
+
+# 官方代码的做法：误差模型拟合带符号误差 e(x) ≈ f(x) - y，按 |e| 定概率、平衡带符号的 e
+request = select_for_labeling(predictions, target=Mean(), design=BalancedDesign(balancing=e),
+                              budget=400, scores=np.abs(e), random_state=42)
+```
+
+- **平衡变量**：默认平衡 `scores`（论文正文的 û）。官方代码平衡的是带符号的误差预测，这正是论文假设 5（`sgn(f - f̂)·û ≈ f - f̂`）所需要的；通过 `balancing=` 传入。增益来自平衡掉 f̂ 的系统偏差：f̂ 无偏或标签噪声占主导时（例如本仓库的二元模拟数据），BAI 与 ASI 几乎相同。`fixed_size=True` 额外平衡 π 本身，固定选中数约为 `sum(pi)`。
+- **cube 方法**：`cube_sample` 是纯 NumPy 实现（官方经 rpy2 调用 R 包 `BalancedSampling`）。行先随机排序；飞行阶段每步在 q+1 个非整数行上沿平衡约束的零空间方向移动 π，并按鞅性质选择方向，使包含概率不变；着陆阶段逐个去掉最后一个平衡变量重复，最后剩余行独立抽取。复杂度 O(n·p³)，n=2000、p=1 时每次约 70 ms。
+- **方差**：设计方差用 Deville–Tillé 的平衡抽样方差近似（`cube_variance`，与官方 `estimate_cube_variance` 逐值一致），即残差 `Y - f` 对平衡变量做加权回归后的残差平方和。默认再加上 Hájek 加权的标签方差除以 n，使区间与 ASI、PPI 一样针对总体均值 E[Y]（对应论文定理 1 的 V0）；`BAI(finite_population=True)` 只保留设计方差，针对池中标签的均值，与官方代码一致。诊断信息给出 `design_variance`、`population_variance` 和各平衡变量的 `relative_imbalance`。
+- **验证**：按论文 Friedman 设定（预算 0.1、有限池口径、仿照官方的强收缩梯度提升）复现，传统主动推断区间宽度 0.369、BAI 0.245（缩小 34%，覆盖率均约 0.90；论文表 1 为 0.3305 → 0.1052，差异来自 XGBoost 与 sklearn 实现及数据量不同）。
 
 ## 独立两样本 PPI（四步）
 
@@ -184,9 +211,10 @@ python -m pytest
 
 `results_asi/config.json` 记录参数；`per_rep_final.csv` 保存 300 条逐次结果；`fixed_budget_comparison.csv` 保存三种策略的汇总。
 
-测试分三个文件：
+测试分四个文件：
 
 - `common/test_core.py`：ASI 校正公式与区间函数收到的 values、`Uncertainty` 的 η 与预算下限、`tune_tau`、`LabelRequest` 只含选点信息且 `with_labels` 校验标签数量、PPI 公式与切分，以及固定预测下 200 次 DGP 覆盖率。
+- `common/test_bai.py`：cube 抽样满足平衡约束且包含概率不变、`fixed_size` 的样本量、默认与带符号平衡变量的记录、方差函数与官方 `estimate_cube_variance` 逐值一致、BAI 与 ASI 点估计一致及方差分解，以及 150 次 DGP 覆盖率。
 - `common/test_rasi.py`：三条路径的端点与预算、`RobustDesign` 逐行概率复现 `budget_path`、`scores=` 不影响默认选点、分步两批写法与便捷函数一致、与官方极小极大目标逐点一致、c=0 时 ρ=0 且 c 增大时 ρ 单调趋于 1、查询只发生在选中行、RASI 与 ASI 点估计一致，以及 150 次 DGP 覆盖率。
 - `common/test_online.py`：序贯版本的查询时机、历史保留、预训练更新、按标签数触发更新、`Exploring` 与周期性用完预算，以及固定模型下与 `select_for_labeling` 一致。
 
