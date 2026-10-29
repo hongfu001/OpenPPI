@@ -102,3 +102,16 @@ def make_clustered_data(clusters=300, seed=0, cluster_sd=1.5, noise_sd=.1, bias=
         'label': rng.binomial(1, p).astype(float),
         'prediction': np.clip(p + rng.normal(0, noise_sd, len(cluster)) + bias, 0, 1),
     })
+
+
+def make_multi_rater_data(n, seed=0, noise_sd=(2., 1., .4), signal=3.):
+    """Columns: binary label, then one autorater score per noise level (less noise = better rater).
+
+    label ~ Bernoulli(expit(signal * z)) and rater j scores expit(z + N(0, noise_sd[j]^2)) with
+    z ~ N(0, 1), so the mean of the label is 0.5 by symmetry.
+    """
+    rng = np.random.default_rng(seed)
+    z = rng.normal(size=n)
+    label = rng.binomial(1, expit(signal * z)).astype(float)
+    raters = [expit(z + rng.normal(0, sd, n)) for sd in noise_sd]
+    return np.column_stack([label] + raters)

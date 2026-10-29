@@ -101,6 +101,45 @@ class ClusteredPPIData:
         if self.labeled.sum() < 2 or (~self.labeled).sum() < 1 or len(np.unique(self.clusters)) < 2:
             raise ValueError('Need two labeled units, one unlabeled unit and two clusters')
 
+
+@dataclass(frozen=True)
+class MultiPPIData:
+    """Samples of subsets of X = (label, prediction_2, ..., prediction_k) for MultiPPI.
+
+    samples maps an index tuple I (0 is the label) to an n_I x |I| array of
+    iid draws of X_I, independent across subsets; columns follow the sorted
+    indices. The subset containing every index holds the fully labeled rows,
+    which also estimate the covariance unless one is given. Labels are binary.
+    Arrays are copied and made read-only.
+    """
+    samples: dict
+
+    def __post_init__(self):
+        clean = {}
+        for subset, rows in self.samples.items():
+            key = tuple(sorted(subset))
+            array = np.array(rows, dtype=float, copy=True)
+            if array.ndim == 1:
+                array = array[:, None]
+            if key in clean or not key or key[0] < 0 or array.ndim != 2 or array.shape[1] != len(key):
+                raise ValueError('samples must map distinct index tuples to n x |I| arrays')
+            if len(array) < 2 or not np.isfinite(array).all():
+                raise ValueError('Each subset needs at least two finite rows')
+            if key[0] == 0 and not np.isin(array[:, 0], [0., 1.]).all():
+                raise ValueError('MultiPPI Mean currently requires binary labels')
+            array.setflags(write=False)
+            clean[key] = array
+        k = max(key[-1] for key in clean) + 1
+        if not any(key[0] == 0 for key in clean):
+            raise ValueError('At least one subset must contain the label (index 0)')
+        object.__setattr__(self, 'samples', clean)
+        object.__setattr__(self, 'dimension', k)
+
+    @property
+    def full(self):
+        """The fully labeled rows (all k columns), or None."""
+        return self.samples.get(tuple(range(self.dimension)))
+
 ROBUST_PATHS = ('linear', 'geometric', 'hellinger')
 
 
