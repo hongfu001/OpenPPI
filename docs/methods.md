@@ -19,6 +19,7 @@ openppi/                     # installable core (NumPy and SciPy only)
 │   ├── base.py              # InferenceMethod
 │   ├── ipw.py               # IPW: f + R/pi (Y - f) (ASI, RASI, FTRL)
 │   ├── linear.py            # OLS and target-specific regression implementations
+│   ├── time_series.py       # PPITSAS, Newey-West Bartlett HAC (mean only)
 │   ├── two_sample.py        # TwoSample(lam=1 | 'tuned' | number), tuned_lambda (PPI, PPI++)
 │   ├── misclassification.py # RoganGladen, MisclassificationMLE (hard binary judges)
 │   ├── stratified.py        # StratPPI (known population weights, within-stratum corrections)
@@ -67,6 +68,7 @@ A method is a sampling component plus an inference component. `openppi/methods.p
 | LinearCalPPI | `None` | `CalibratedPPI(calibration='linear')` | `PPIData` |
 | StratPPI | `stratified_allocate` | `StratPPI()` | `StratifiedPPIData` |
 | PPI | `None` | `TwoSample(lam=1.0)` | `PPIData` |
+| PPITSAS | `None` (chronological blocks) | `PPITSAS()` | `PPIData` |
 | PPI++ | `None` | `TwoSample(lam='tuned')` | `PPIData` |
 | RG | `None` | `RoganGladen()` | `PPIData` |
 | MLE | `None` | `MisclassificationMLE()` | `PPIData` |
@@ -548,7 +550,7 @@ Error-pilot labels never train the mean predictor and inference labels never tra
 
 ## Linear-regression M-estimator: first stage
 
-The supported regression targets are currently **OLS, PPI, PPI++, PSPA, ASI and RASI**. The first four form the passive group. This is the interface/foundation stage of the larger regression roadmap; RePPI, FAB-PPI, StratPPI, Cluster-PPI and BAI retain mean-only support. ASI and RASI now have a separate active regression implementation, described below. Their regression calibration, nuisance handling, cluster dependence and sampling-design covariance must be implemented separately. A successful mean run is not validation of those regression extensions. No general-loss optimization framework is introduced here.
+The supported regression targets are currently **OLS, PPI, PPI++, PSPA, ASI and RASI**. The first four form the passive group. This is the interface/foundation stage of the larger regression roadmap; RePPI, FAB-PPI, StratPPI, Cluster-PPI, PPITSAS and BAI retain mean-only support. ASI and RASI now have a separate active regression implementation, described below. Their regression calibration, nuisance handling, cluster dependence and sampling-design covariance must be implemented separately. A successful mean run is not validation of those regression extensions. No general-loss optimization framework is introduced here.
 
 **Statistical target and data.** `LinearRegression(fit_intercept=True, focus=1)` defines the population projection `beta = argmin_b E[(Y-V.T@b)**2]`, equivalently `E[V*(V.T@beta-Y)]=0`. The conditional mean need not be linear; sandwich inference permits heteroskedasticity and nonlinear misspecification under iid sampling and finite moments. The target covariates V and prediction features Z must be distinguished: `RegressionData` subclasses `PPIData`, adding aligned finite matrices `labeled_covariates` and `unlabeled_covariates`. Prediction-model features are not guessed from these columns. Train a fixed f(Z) on independent data and pass aligned response-scale predictions. All four methods consume this common two-sample record; OLS reads only its labeled part, although the shared container still requires an unlabeled sample.
 
@@ -624,3 +626,87 @@ Only queried outcomes enter T. This exactly solves the squared-loss active M-est
 **References and exact comparisons.** The inspected ASI commit is `0f99f7ee6055b6f86c0ce88ece3cb2bf3c9c19cd` and RASI commit is `e8037bc113c62f420929f9a7c680a93f036674ec`. `tests/fixtures/generate_active_linear.py` extracts the actual OLS/score-covariance blocks from their Census notebooks and produces `active_linear.json`; no survey download or heavyweight training dependency is required. Both the point vector and full covariance agree on fixed queried data, including a RASI burn-in with propensity one. The precise ASI clipping/mixing convention is the existing OpenPPI design (mix after clipping), which can differ from the batch notebook's mix-before-clipping implementation when probabilities saturate. This is documented as a design convention, not an assertion that sampled row ids reproduce those notebooks.
 
 **Experiments and verification.** `regression.py --target linear` now has two distinct groups: OLS/PPI/PPI++/PSPA share passive labeled samples; Uniform+IPW/ASI/RASI share the same candidate covariate pool, fixed predictor, focus and nominal total query budget. ASI uses an independent absolute-error pilot and reports its extra label cost; RASI fits its own burn-in and deducts it from its remaining query budget. The fixed predictor is trained independently for all methods. The main summary still reports the focus coefficient and `all_coefficients.csv` reports every coordinate, now with a group column. The passive notebook filters the passive group; `active_linear_regression.ipynb` provides the full API flow, focused-score illustration and active-group plots/costs. Mean, passive coefficient and online mean tests remain in the suite. New tests cover official fixtures, coefficient-direction scores, full-score sandwich, translation, missingness and order, dependent-design rejection, burn-in-only/CV training, metadata and repeated coefficient coverage in both noise settings. This release is batch active regression; sequential regression model/error-learner updates remain a separate extension.
+
+
+## PPITSAS: time-series mean
+
+Reference: [Prediction-powered inference for time series across space](https://arxiv.org/abs/2610.08715),
+Rizvi et al. (2026), NeurIPS TS-LIMITS Workshop, Algorithms 1–2. The inspected
+[official numerical implementation](https://github.com/shahzarrizvi/ppitsas/blob/5850ddc693bb3d066a18b47881e209df642a2f73/utils/methods.py)
+is pinned to commit `5850ddc693bb3d066a18b47881e209df642a2f73`.
+
+**Interface.** `PPITSAS(max_lag=None, interval=wald_interval)` inherits
+`InferenceMethod`, takes `PPIData`, and supports only `Mean` (binary or real
+outcomes). It is registered as `get_method('PPITSAS')`, with no sampling component.
+One call estimates one location's long-run mean. Keep each array in time order,
+with consecutive regularly spaced observations. `PPIData` checks finite arrays
+and label/prediction alignment; it cannot verify stationarity, ordering, spacing
+or training provenance. Its iid assumption applies to `TwoSample`, while the
+time-series assumptions below apply when it is passed to `PPITSAS`.
+
+**Point estimate.** For historical predictions `f_U` and rectification residuals
+`r = y_L - f_L`, return `mean(f_U) + mean(r)`, exactly the ordinary PPI point
+estimate with weight one. There is no PPI++ weight tuning or regression target.
+
+**Standard error.** Separately estimate the HAC variance of each sample mean:
+
+```text
+c_t = w_t - mean(w)
+gamma_j = sum_{t=1}^{T-j} c_t c_{t+j} / T
+Omega = gamma_0 + 2 sum_{j=1}^L (1 - j/(L+1)) gamma_j
+V_mean(w) = max(Omega/T, 0)
+se = sqrt(V_mean(f_U) + V_mean(r))
+```
+
+The interval is the ordinary normal Wald interval around the corrected point
+estimate with this SE. No cross-block covariance term is added, following the
+paper's asymptotic approximation. Lag zero uses population variance (`ddof=0`)
+divided by T, so it does not exactly equal iid PPI's `ddof=1` SE at finite T.
+Negative sample autocovariances may reduce the estimated variance.
+
+**Bandwidth.** With `max_lag=None`, choose a separate lag for each series:
+`m=floor(4*(T/100)^(2/9))`, capped at T−1;
+`s0=gamma_0+2*sum(gamma_1,...,gamma_m)`;
+`s1=2*sum(j*gamma_j, j=1,...,m)`;
+`L=floor(1.1447*T^(1/3)*abs(s1/s0)^(2/3))`.
+This matches the official code's rounded constant `1.1447` rather than changing
+to the paper's exact `(3/2)^(1/3)`. There is no prewhitening. Degenerate pilot
+sums (`abs(s0)<=1e-14`) or nonfinite bandwidths select lag zero. Explicit lags
+must be nonnegative integers, and are capped separately at each sample's T−1.
+Diagnostics report both effective lags and the two mean-variance contributions.
+Constant series have zero estimated HAC variance.
+
+**Training and splitting.** The paper's Algorithm 1 uses this chronology:
+**unlabeled history -> rectification -> fitting**. Fit one shared predictor using
+the latest fitting block across locations, then freeze it. Keep inference
+separate by location. Do not shuffle with the iid `split()` helper. The official
+weather script's `process_data` instead uses **fitting -> rectification ->
+estimation**; OpenPPI's numerical inference agrees with its `ppitsas` function,
+while our simulation follows the paper's chronology. This ordering difference
+is intentional and is not a claim of exact weather-experiment reproduction.
+
+**Assumptions and limits.** The intended setting is time stationarity with
+suitable weak dependence/mixing and moment conditions. The asymptotic reasoning
+neglects cross-block and fitting dependence; it is not a general guarantee for
+arbitrary dependent sequences. The paper presents a proof sketch rather than a
+completed full theorem. Intervals are pointwise by location, not simultaneous
+spatial bands, individual-response prediction intervals or anytime intervals.
+A spatial cluster-robust SE is not a substitute for this temporal HAC estimator.
+
+**Validation and simulation.** `tests/fixtures/generate_time_series.py` extracts
+only the official numerical functions from the pinned source and produces
+`time_series.json`; tests need neither network access nor the official repository.
+Reference cases cover automatic and fixed lags, positive/negative correlation,
+constant series, short samples, lag zero and capped lags. A hand calculation
+checks the Bartlett weights and T normalization. Tests check the mean-only
+restriction, interval values, and exclusion of historical/rectification labels
+from fitting. The slow test compares iid PPI and PPITSAS coverage over 200
+stationary AR(1) replicates.
+
+`examples/simulation/dataset/time_series_sim.py` generates jointly stationary,
+spatially correlated AR(1) covariates and errors, with real-valued labels and
+exact site means `1 + .5*s`. A pooled linear predictor omits a centered quadratic
+term. `time_series.py` runs chronological training and repeated pointwise
+inference; `ppitsas.ipynb` is an executed four-step example and 200-replicate
+comparison. Coverage Monte Carlo uncertainty is computed from independent
+replicate-level average coverage, preserving the dependence among locations.

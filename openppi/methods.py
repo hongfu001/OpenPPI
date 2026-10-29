@@ -11,7 +11,7 @@ from functools import partial
 from .common.data import (ActiveData, BalancedActiveData, ClusteredPPIData, MultiPPIData,
                           PPIData, StratifiedPPIData)
 from .inference import (BAI, IPW, ActiveRegressionIPW, CalibratedPPI, ClusterRobustPPI, FABPPI, MisclassificationMLE, MultiPPI,
-                        OLS, PSPA, RePPI, RoganGladen, StratPPI, TwoSample)
+                        OLS, PPITSAS, PSPA, RePPI, RoganGladen, StratPPI, TwoSample)
 from .sampling import (BalancedDesign, FTRLDesign, RobustDesign, Uncertainty, multi_allocate,
                        stratified_allocate)
 
@@ -38,6 +38,8 @@ METHODS = {recipe.name: recipe for recipe in (
     Recipe('OLS', None, OLS(), OLS.data_type, 'Ordinary least squares'),
     Recipe('PPI', None, TwoSample(lam=1.0), PPIData,
            'Prediction-Powered Inference'),
+    Recipe('PPITSAS', None, PPITSAS(), PPIData,
+           'Prediction-powered inference for time series across space'),
     Recipe('PPI++', None, TwoSample(lam='tuned'), PPIData,
            'PPI++: Efficient Prediction-Powered Inference'),
     Recipe('RG', None, RoganGladen(), PPIData,

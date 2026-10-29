@@ -47,10 +47,14 @@ class ActiveData:
 
 @dataclass(frozen=True)
 class PPIData:
-    """Disjoint iid labeled and unlabeled samples for real-valued mean PPI.
+    """Labeled outcomes/predictions and unlabeled predictions, as snapshots.
 
-    The predictor must be trained independently of both inference samples.
-    Only the labeled sample needs observed outcomes. Arrays are snapshots.
+    TwoSample requires disjoint iid samples and an independently trained
+    predictor. PPITSAS instead interprets these arrays as chronological,
+    consecutive blocks at one location; its time-series assumptions and
+    fitting-block requirements apply. This container checks arrays only,
+    not independence, time spacing or the provenance of the predictor.
+    Only the labeled sample needs observed outcomes.
     """
     labels: np.ndarray
     labeled_predictions: np.ndarray

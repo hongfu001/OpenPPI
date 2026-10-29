@@ -12,6 +12,7 @@ from .multi import MultiPPI
 from .recalibrated import BinnedMean, RePPI
 from .stratified import StratPPI
 from .two_sample import TwoSample
+from .time_series import PPITSAS
 
-__all__ = ['InferenceMethod', 'BAI', 'ClusterRobustPPI', 'FABPPI', 'IPW', 'MultiPPI', 'BinnedMean', 'RePPI',
+__all__ = ['InferenceMethod', 'PPITSAS', 'BAI', 'ClusterRobustPPI', 'FABPPI', 'IPW', 'MultiPPI', 'BinnedMean', 'RePPI',
            'ActiveRegressionIPW', 'OLS', 'CalibratedPPI', 'StratPPI', 'TwoSample', 'PSPA', 'RoganGladen', 'MisclassificationMLE']

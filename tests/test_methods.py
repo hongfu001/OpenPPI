@@ -5,7 +5,7 @@ from openppi import METHODS, InferenceMethod, SamplingDesign, get_method, multi_
 
 
 def test_recipes_fit_their_components():
-    assert set(METHODS) == {'OLS', 'CalPPI', 'LinearCalPPI', 'StratPPI', 'RG', 'MLE', 'PPI', 'PPI++', 'PSPA', 'RePPI', 'FAB-PPI', 'Cluster-PPI', 'MultiPPI', 'ASI', 'RASI',
+    assert set(METHODS) == {'OLS', 'CalPPI', 'LinearCalPPI', 'StratPPI', 'RG', 'MLE', 'PPI', 'PPI++', 'PPITSAS', 'PSPA', 'RePPI', 'FAB-PPI', 'Cluster-PPI', 'MultiPPI', 'ASI', 'RASI',
                             'FTRL', 'BAI'}
     for name, recipe in METHODS.items():
         assert recipe.name == name and get_method(name) is recipe

@@ -29,6 +29,12 @@ OpenPPI is a Python library for prediction-powered inference: valid confidence i
 | 2023 | **[PPI++: Efficient Prediction-Powered Inference](https://arxiv.org/abs/2311.01453)** | Ann. Appl. Stat. | [Link](https://github.com/aangelopoulos/ppi_py) | `PPI++` |
 | 2023 | **[Prediction-Powered Inference](https://arxiv.org/abs/2301.09633)** | Science | [Link](https://github.com/aangelopoulos/ppi_py) | `PPI` |
 
+## Prediction-Powered Inference for Time Series
+
+| Year | Title | Venue | Code Link | Registry name |
+| ---- | ----- | ----- | --------- | -------------- |
+| 2026 | **[Prediction-powered inference for time series across space](https://arxiv.org/abs/2610.08715)** | NeurIPS'26 TS-LIMITS Workshop | [Link](https://github.com/shahzarrizvi/ppitsas) | `PPITSAS` |
+
 ## Active Inference
 
 | Year | Title | Venue | Code Link | Registry name |
@@ -54,6 +60,7 @@ The tables below list the implemented methods. The last column is the name in th
 | ------ | ------------------ | ------------------- | ---- |
 | OLS | pre-split samples | `OLS()` | `RegressionData` |
 | PPI | pre-split samples | `TwoSample(lam=1.0)` | `PPIData` / `RegressionData` |
+| PPITSAS | chronological blocks | `PPITSAS()` (mean only, Newey-West HAC) | `PPIData` |
 | PPI++ | pre-split samples | `TwoSample(lam='tuned')` | `PPIData` / `RegressionData` |
 | PSPA | pre-split samples | `PSPA()` | `PPIData` / `RegressionData` |
 | RG / MLE | pre-split samples | `RoganGladen()` / `MisclassificationMLE()` | `PPIData` |
@@ -123,6 +130,48 @@ result = recipe.inference(record, target=Mean(), alpha=.05)
 
 `PPIData` accepts finite real outcomes and predictions. For continuous outcomes in active tasks, use `Mean(outcome_type='continuous')` and pass explicit nonnegative `scores=`; the binary probability-uncertainty rule is never applied implicitly in continuous mode.
 
+## Time-series mean inference
+
+`PPITSAS` uses the same corrected point estimate as PPI, with Newey-West HAC
+variances for the prediction and residual time series. It supports **Mean only**.
+Each call handles one location; array rows must retain chronological order
+within consecutive, regularly spaced blocks. Pool locations for training if
+useful, but do not concatenate them into a single inference series.
+
+```python
+from openppi import Mean, PPIData, PPITSAS, get_method
+
+# Old unlabeled history -> recent rectification -> latest fitting block.
+# f is a predictor trained on the separate fitting block, then fixed.
+data = PPIData(labels=y_rectification,
+               labeled_predictions=f_rectification,
+               unlabeled_predictions=f_history)
+result = get_method('PPITSAS').inference(data, target=Mean(outcome_type='continuous'))
+# PPITSAS(max_lag=10)(data, target=Mean()) selects a fixed Bartlett lag.
+```
+
+The default selects a separate Newey-West plug-in lag for each sequence.
+Stationarity, suitable mixing/moment conditions and negligible cross-block
+and training dependence are required; the paper gives a proof sketch rather
+than a completed general validity theorem. These are pointwise intervals
+for long-run means, not forecast intervals or simultaneous spatial bands.
+Do not use the iid random `split()` helper for this case.
+
+The executed [PPITSAS notebook](examples/simulation/ppitsas.ipynb) follows the
+same four steps as the PPI notebook and compares iid PPI with HAC on stationary,
+spatially correlated AR(1) data. A shared linear predictor deliberately omits a
+quadratic term. This is a lightweight simulation case, not a reproduction of
+the paper's weather experiment. To repeat it and save per-site results:
+
+```sh
+cd examples/simulation
+python time_series.py --reps 200 --out results_time_series
+```
+
+Coverage Monte Carlo SE uses independent replicate averages, accounting for
+correlation among sites within a replicate. See the [method notes](docs/methods.md#ppitsas-time-series-mean)
+for formulas, reference checks and chronological splitting details.
+
 ## Linear regression
 
 The squared-loss M-estimator supports **OLS, PPI, PPI++ and PSPA** for passive coefficient inference, and **ASI and RASI** for active coefficient inference. Target covariates V define the population least-squares projection; the independent predictor may use richer features Z. The interfaces keep those roles separate:
@@ -158,7 +207,7 @@ RASI's `RobustDesign.fit(..., target=target, covariates=V_burn, reference_covari
 
 # Experiments
 
-Every method has an executed notebook in [examples/simulation](examples/simulation) (`ppi.ipynb`, `ppi_plus_plus.ipynb`, `asi.ipynb`, ...). They run from that folder, so the simulated `dataset` and `model` packages import directly. The [method reference](docs/methods.md) documents each method's interface, formulas, differences from the official implementations, and validation results.
+Every method has an executed notebook in [examples/simulation](examples/simulation) (`ppi.ipynb`, `ppitsas.ipynb`, `ppi_plus_plus.ipynb`, `asi.ipynb`, ...). They run from that folder, so the simulated `dataset` and `model` packages import directly. The [method reference](docs/methods.md) documents each method's interface, formulas, differences from the official implementations, and validation results.
 
 
 # Repository layout
@@ -170,7 +219,7 @@ openppi/              installable core library (NumPy and SciPy only)
 ├── inference/        estimators: ipw (IPW, ActiveRegressionIPW), two_sample (TwoSample),
 │                     linear (OLS), adaptive (PSPA), misclassification (RG, MLE),
 │                     calibrated (CalibratedPPI), recalibrated (RePPI), fab (FABPPI),
-│                     cluster (ClusterRobustPPI), stratified (StratPPI), multi (MultiPPI),
+│                     cluster (ClusterRobustPPI), time_series (PPITSAS), stratified (StratPPI), multi (MultiPPI),
 │                     balanced (BAI)
 ├── common/           data structures and split(), targets, regression helpers,
 │                     InferenceResult, shared formulas

@@ -6,7 +6,7 @@ records the published combinations (get_method('ASI'), METHODS).
 from .common import (ActiveData, ActiveRegressionData, BalancedActiveData, ClusteredPPIData, InferenceResult, Mean, MultiPPIData,
                      PPIData, RegressionData, LinearRegression, StratifiedPPIData, Target, split)
 from .inference import (BAI, IPW, ActiveRegressionIPW, BinnedMean, CalibratedPPI, ClusterRobustPPI, FABPPI, InferenceMethod,
-                        MisclassificationMLE, MultiPPI, OLS, PSPA, RePPI, RoganGladen, StratPPI, TwoSample)
+                        MisclassificationMLE, MultiPPI, OLS, PPITSAS, PSPA, RePPI, RoganGladen, StratPPI, TwoSample)
 from .methods import METHODS, Recipe, get_method
 from .sampling import (Allocation, BalancedDesign, BurnIn, FTRLDesign, LabelRequest, RobustDesign,
                        SamplingDesign, StratifiedAllocation, Uncertainty, Uniform,
@@ -24,7 +24,7 @@ __all__ = [
     'StratifiedAllocation', 'stratified_allocate', 'confidence_residual_variance',
     # inference components
     'ActiveRegressionIPW', 'InferenceMethod', 'IPW', 'TwoSample', 'RePPI', 'BinnedMean', 'FABPPI', 'ClusterRobustPPI',
-    'OLS', 'CalibratedPPI', 'MultiPPI', 'BAI', 'StratPPI', 'RoganGladen', 'MisclassificationMLE', 'PSPA',
+    'OLS', 'PPITSAS', 'CalibratedPPI', 'MultiPPI', 'BAI', 'StratPPI', 'RoganGladen', 'MisclassificationMLE', 'PSPA',
     # method registry
     'RegressionLabelRequest', 'RegressionRobustDesign', 'linear_regression_scores', 'METHODS', 'Recipe', 'get_method',
 ]
