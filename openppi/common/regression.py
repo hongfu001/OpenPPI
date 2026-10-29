@@ -50,3 +50,21 @@ def diagnostics(x,z,target,condition,cov,**extra):
                 coefficient_names=(['intercept'] if target.fit_intercept else [])+
                     [f'V{i+1}' for i in range(x.shape[1]-int(target.fit_intercept))],
                 condition_number=condition,variance_design='independent_regression_sandwich',**extra)
+
+
+def design_matrix(covariates,target):
+    x=np.asarray(covariates,dtype=float)
+    if x.ndim!=2 or len(x)<2 or not np.isfinite(x).all():
+        raise ValueError('Require a finite two-dimensional target-covariate matrix')
+    x=np.column_stack([np.ones(len(x)),x]) if target.fit_intercept else x
+    if x.shape[1]==0 or target.focus is not None and target.focus>=x.shape[1]:
+        raise ValueError('focus must index the design after intercept insertion')
+    return x
+
+
+def focused_direction(reference_covariates,target):
+    if target.focus is None:
+        raise ValueError('Active regression sampling requires one focus coordinate, not focus=None')
+    v=design_matrix(reference_covariates,target)
+    inverse,_=checked_inverse(v.T@v/len(v),target.max_condition,name='Reference Gram matrix',positive=True)
+    return inverse[:,target.focus]

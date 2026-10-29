@@ -5,7 +5,7 @@ from .balanced import BAI
 from .calibrated import CalibratedPPI
 from .cluster import ClusterRobustPPI
 from .fab import FABPPI
-from .ipw import IPW
+from .ipw import ActiveRegressionIPW, IPW
 from .misclassification import MisclassificationMLE, RoganGladen
 from .linear import OLS
 from .multi import MultiPPI
@@ -14,4 +14,4 @@ from .stratified import StratPPI
 from .two_sample import TwoSample
 
 __all__ = ['InferenceMethod', 'BAI', 'ClusterRobustPPI', 'FABPPI', 'IPW', 'MultiPPI', 'BinnedMean', 'RePPI',
-           'OLS', 'CalibratedPPI', 'StratPPI', 'TwoSample', 'PSPA', 'RoganGladen', 'MisclassificationMLE']
+           'ActiveRegressionIPW', 'OLS', 'CalibratedPPI', 'StratPPI', 'TwoSample', 'PSPA', 'RoganGladen', 'MisclassificationMLE']

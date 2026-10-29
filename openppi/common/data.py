@@ -240,3 +240,21 @@ class RegressionData(PPIData):
             object.__setattr__(self,name,x)
         if self.labeled_covariates.shape[1] != self.unlabeled_covariates.shape[1]:
             raise ValueError('Both samples must have the same covariate columns in the same order')
+
+
+@dataclass(frozen=True)
+class ActiveRegressionData(ActiveData):
+    """Query-time response predictions plus target covariates V for every row.
+
+    Only queried outcomes are stored; the covariate pool is observed without
+    labels. Predictions/propensities must precede their corresponding label.
+    """
+    covariates: np.ndarray = None
+
+    def __post_init__(self):
+        super().__post_init__()
+        x=np.array(self.covariates,dtype=float,copy=True)
+        if x.ndim!=2 or len(x)!=len(self.predictions) or not np.isfinite(x).all():
+            raise ValueError('Require a finite target-covariate matrix aligned with the full pool')
+        x.setflags(write=False)
+        object.__setattr__(self,'covariates',x)

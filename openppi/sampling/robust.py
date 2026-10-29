@@ -18,7 +18,7 @@ reference concatenated estimator.
 from dataclasses import dataclass
 import numpy as np
 
-from ..common.data import ActiveData
+from ..common.data import ActiveData, ActiveRegressionData
 from .base import LabelRequest, SamplingDesign, validate_calibration
 
 PATHS = ('linear', 'geometric', 'hellinger')
@@ -162,12 +162,26 @@ class RobustDesign(SamplingDesign):
 
     @classmethod
     def fit(cls, features, labels, predictions, *, error_model_factory, rho, constraint=None,
-            candidates=DEFAULT_CONSTRAINTS, folds=5, path='geometric', grid=101, random_state=None):
+            candidates=DEFAULT_CONSTRAINTS, folds=5, path='geometric', grid=101, random_state=None,
+            target=None, covariates=None, reference_covariates=None):
         """Fit e(x) to |Y - f(x)| on burn-in rows; choose c by CV when constraint is None.
 
         rho is the second batch's sampling rate (its budget over the number
         of remaining rows), used only by cross-validation.
         """
+        if target is None and (covariates is not None or reference_covariates is not None):
+            raise ValueError('Specify a LinearRegression target with regression covariates')
+        if target is not None:
+            from ..common.targets import LinearRegression
+            if not isinstance(target, LinearRegression):
+                raise TypeError('The optional target must be LinearRegression; omit it for mean inference')
+            if covariates is None or reference_covariates is None:
+                raise ValueError('Regression RASI requires burn-in and reference target covariates')
+            from .regression import RegressionRobustDesign
+            return RegressionRobustDesign.fit(features,labels,predictions,
+                covariates=covariates,reference_covariates=reference_covariates,target=target,
+                error_model_factory=error_model_factory,rho=rho,constraint=constraint,
+                candidates=candidates,folds=folds,path=path,grid=grid,random_state=random_state)
         if not callable(error_model_factory):
             raise TypeError('error_model_factory must be callable')
         x = np.asarray(features, dtype=float)
@@ -233,7 +247,7 @@ class BurnIn:
         if len(rows) != self.n or not np.array_equal(np.sort(rows), np.arange(self.n)):
             raise ValueError('indices and remaining must partition range(n)')
 
-    def combine(self, predictions, labels, request, request_labels):
+    def combine(self, predictions, labels, request, request_labels, *, covariates=None):
         """Merge both batches into ActiveData over all n rows.
 
         labels align with indices; request is the second batch's
@@ -258,9 +272,20 @@ class BurnIn:
         queried[self.remaining] = second.queried
         propensities[self.remaining] = second.propensities
         design = request.design
-        return ActiveData(p, observed, queried, propensities, design_info={
-            'variance_design': 'robust_active_terminal_plugin', 'burn_in': len(self.indices),
-            'rho_robust': design.rho_robust, 'constraint': design.constraint, 'path': design.path})
+        info={'variance_design': 'robust_active_terminal_plugin', 'burn_in': len(self.indices),
+              'rho_robust': design.rho_robust, 'constraint': design.constraint, 'path': design.path}
+        if isinstance(second,ActiveRegressionData):
+            if covariates is None:
+                raise ValueError('Combining regression batches requires the full target-covariate pool')
+            v=np.asarray(covariates,dtype=float)
+            if v.ndim!=2 or len(v)!=self.n or not np.array_equal(v[self.remaining],second.covariates):
+                raise ValueError('Regression request covariates must match the remaining pool in order')
+            if hasattr(design,'target'):
+                info['sampling_focus']=design.target.focus
+            return ActiveRegressionData(p,observed,queried,propensities,design_info=info,covariates=v)
+        if covariates is not None:
+            raise ValueError('A regression pool requires a regression second-batch request')
+        return ActiveData(p, observed, queried, propensities, design_info=info)
 
 
 def select_burn_in(n, *, size, random_state=None):

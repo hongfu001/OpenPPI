@@ -55,4 +55,4 @@ class LinearRegression(Target):
             raise ValueError('max_condition must be finite and > 1')
 
     def sampling_scores(self, features, predictions):
-        raise ValueError('LinearRegression requires a coefficient-specific sampling design; not implemented yet')
+        raise ValueError('LinearRegression requires explicit coefficient-specific scores; use linear_regression_scores')

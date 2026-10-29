@@ -14,7 +14,7 @@ OpenPPI is a Python library for prediction-powered inference: valid confidence i
 
 # Overview
 
-OpenPPI supports population means with binary or continuous outcomes, plus an initial linear-regression coefficient target for OLS, PPI, PPI++ and PSPA. RG/MLE require binary labels and judgments; the current cluster and multi-source data containers also retain their binary-label validation. It implements the following methods. The last column is the name in the method registry, `openppi.get_method(name)`.
+OpenPPI supports population means with binary or continuous outcomes, plus an linear-regression coefficient target for OLS, PPI, PPI++, PSPA, ASI and RASI. RG/MLE require binary labels and judgments; the current cluster and multi-source data containers also retain their binary-label validation. It implements the following methods. The last column is the name in the method registry, `openppi.get_method(name)`.
 
 ## Prediction-Powered Inference
 
@@ -52,12 +52,12 @@ OpenPPI supports population means with binary or continuous outcomes, plus an in
 | FAB-PPI | pre-split samples | `FABPPI()` | `PPIData` |
 | Cluster-PPI | pre-split samples | `ClusterRobustPPI()` | `ClusteredPPIData` |
 | MultiPPI | `multi_allocate` | `MultiPPI()` | `MultiPPIData` |
-| ASI | `Uncertainty(tau=.5)` | `IPW()` | `ActiveData` |
-| RASI | burn-in, then `RobustDesign.fit(...)` | `IPW()` | `ActiveData` |
+| ASI | `Uncertainty(tau=.5)` | `ActiveRegressionIPW()` | `ActiveData` / `ActiveRegressionData` |
+| RASI | burn-in, then `RobustDesign.fit(...)` | `ActiveRegressionIPW()` | `ActiveData` / `ActiveRegressionData` |
 | FTRL | `FTRLDesign()` | `IPW()` | `ActiveData` |
 | BAI | `BalancedDesign()` | `BAI()` | `BalancedActiveData` |
 
-ASI, RASI and FTRL share the IPW estimator and differ only in how rows are chosen; PPI and PPI++ share the two-sample estimator and differ only in λ. Components can be combined freely, e.g. a `RobustDesign` with any estimator that accepts `ActiveData`.
+ASI and RASI use the mean/regression IPW dispatcher, while FTRL retains the mean IPW estimator; PPI and PPI++ share the two-sample estimator and differ only in λ. Components can be combined when the target, data and sampling-design covariance agree.
 
 ## TODO
 
@@ -122,7 +122,7 @@ Active inference selects the rows to label first and then runs inference on the 
 ```python
 from openppi import Mean, get_method, select_for_labeling
 
-recipe = get_method('ASI')                                # Uncertainty(tau=.5) + IPW()
+recipe = get_method('ASI')                                # Uncertainty(tau=.5) + ActiveRegressionIPW()
 request = select_for_labeling(predictions, target=Mean(), design=recipe.sampling(),
                               budget=400, random_state=42)
 record = request.with_labels(annotate(request.indices))   # labels only for the selected rows
@@ -191,7 +191,7 @@ Given-label methods share independently trained predictions, labeled data and un
 
 ## Linear-regression M-estimator
 
-The first coefficient-inference stage supports **OLS, PPI, PPI++ and PSPA**, while preserving the existing mean interface. Target covariates V define the population least-squares projection; the independent predictor may use richer features Z. The interfaces keep those roles separate:
+The passive coefficient-inference stage supports **OLS, PPI, PPI++ and PSPA**; **ASI and RASI** also support active coefficient inference, while preserving the existing mean interface. Target covariates V define the population least-squares projection; the independent predictor may use richer features Z. The interfaces keep those roles separate:
 
 ```python
 from openppi import LinearRegression, RegressionData, get_method
@@ -205,10 +205,27 @@ result = get_method('PPI++').inference(
 print(result.estimate, result.covariance, result.confidence_interval)
 ```
 
-Covariates exclude the intercept. `focus` is a zero-based coordinate **after** adding the intercept, so `focus=1` targets the first slope. Intervals are pointwise, not simultaneous. For the supported-target/data mapping, inspect `get_method('PPI++').target_data_types`. Other registered methods do not yet advertise regression support.
+Covariates exclude the intercept. `focus` is a zero-based coordinate **after** adding the intercept, so `focus=1` targets the first slope. Intervals are pointwise, not simultaneous. For the supported-target/data mapping, inspect `get_method('PPI++').target_data_types`. ASI/RASI use `ActiveRegressionData` with coefficient-specific scores. Other registered methods do not yet advertise regression support.
 
 ```sh
 python examples/simulation/regression.py --target linear --focus 1 --reps 100
 ```
 
 The [coefficient notebook](examples/simulation/linear_regression.ipynb) shows coefficients, covariance, the focus-coefficient comparison and all-coefficient supplement. This stage implements the squared-loss M-estimator rather than a general loss-optimization framework. See [derivations and reference differences](docs/methods.md#linear-regression-m-estimator-first-stage).
+
+### Active regression: ASI and RASI
+
+Both papers explicitly support convex M-estimation, including linear-regression coefficients. The implemented target here is `LinearRegression`, not an arbitrary user-supplied loss. For ASI, train an absolute-error predictor on independent pilot labels and select with a coefficient-specific score:
+
+```python
+from openppi import LinearRegression, Uncertainty, linear_regression_scores, select_for_labeling, get_method
+
+target = LinearRegression(fit_intercept=True, focus=1)
+scores = linear_regression_scores(V_pool, predicted_absolute_errors, target=target)
+request = select_for_labeling(f_pool, target=target, covariates=V_pool,
+                             scores=scores, design=Uncertainty(tau=.5), budget=400)
+record = request.with_labels(annotate(request.indices))
+result = get_method('ASI').inference(record, target=target)
+```
+
+RASI's `RobustDesign.fit(..., target=target, covariates=V_burn, reference_covariates=V_pool)` fits on burn-in labels, robustifies the focused errors and optionally selects its radius by coefficient-score cross-validation. See the [active coefficient notebook](examples/simulation/active_linear_regression.ipynb) for the full two-batch flow. Inference solves the active regression score equation with a full matrix sandwich; it does not substitute a mean standard error. The shared coefficient experiment now reports `given_labels` and `select_labels` groups separately, including all labeling costs.

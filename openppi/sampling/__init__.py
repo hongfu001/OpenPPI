@@ -1,5 +1,6 @@
 """Sampling components: which rows to label, one file per mechanism, plus shared pieces in base.py."""
-from .base import SamplingDesign, LabelRequest, select_for_labeling
+from .base import SamplingDesign, LabelRequest, RegressionLabelRequest, select_for_labeling
+from .regression import RegressionRobustDesign, linear_regression_scores
 from .stratified import StratifiedAllocation, confidence_residual_variance, stratified_allocate
 from .uniform import Uniform
 from .uncertainty import Uncertainty, tune_tau
@@ -10,6 +11,6 @@ from .robust import (RobustDesign, BurnIn, select_burn_in, select_constraint, ro
                      active_rule)
 
 __all__ = ['StratifiedAllocation', 'confidence_residual_variance', 'stratified_allocate',
-           'SamplingDesign', 'LabelRequest', 'select_for_labeling', 'Uniform', 'Uncertainty', 'tune_tau',
+           'RegressionLabelRequest', 'RegressionRobustDesign', 'linear_regression_scores', 'SamplingDesign', 'LabelRequest', 'select_for_labeling', 'Uniform', 'Uncertainty', 'tune_tau',
            'BalancedDesign', 'cube_sample', 'FTRLDesign', 'Allocation', 'multi_allocate', 'RobustDesign',
            'BurnIn', 'select_burn_in', 'select_constraint', 'robust_rho', 'budget_path', 'active_rule']

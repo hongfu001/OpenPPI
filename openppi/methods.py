@@ -10,7 +10,7 @@ from functools import partial
 
 from .common.data import (ActiveData, BalancedActiveData, ClusteredPPIData, MultiPPIData,
                           PPIData, StratifiedPPIData)
-from .inference import (BAI, IPW, CalibratedPPI, ClusterRobustPPI, FABPPI, MisclassificationMLE, MultiPPI,
+from .inference import (BAI, IPW, ActiveRegressionIPW, CalibratedPPI, ClusterRobustPPI, FABPPI, MisclassificationMLE, MultiPPI,
                         OLS, PSPA, RePPI, RoganGladen, StratPPI, TwoSample)
 from .sampling import (BalancedDesign, FTRLDesign, RobustDesign, Uncertainty, multi_allocate,
                        stratified_allocate)
@@ -60,9 +60,9 @@ METHODS = {recipe.name: recipe for recipe in (
            'Cluster-Robust Prediction-Powered Inference'),
     Recipe('MultiPPI', multi_allocate, MultiPPI(), MultiPPIData,
            'Multiple-Prediction-Powered Inference'),
-    Recipe('ASI', partial(Uncertainty, tau=.5), IPW(), ActiveData,
+    Recipe('ASI', partial(Uncertainty, tau=.5), ActiveRegressionIPW(), ActiveData,
            'Active Statistical Inference'),
-    Recipe('RASI', RobustDesign, IPW(), ActiveData,
+    Recipe('RASI', RobustDesign, ActiveRegressionIPW(), ActiveData,
            'Robust Sampling for Active Statistical Inference'),
     Recipe('FTRL', FTRLDesign, IPW(), ActiveData,
            'Revisiting Active Sequential Prediction-Powered Mean Estimation'),

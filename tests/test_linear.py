@@ -129,7 +129,7 @@ def test_validation_metadata_and_unsupported_methods():
     with pytest.raises(ValueError): RegressionData([1,2],[1,2],[1,2],[[1],[2]],[[1,2],[3,4]])
     with pytest.raises(TypeError,match='RegressionData'):
         TwoSample()(PPIData([1,2],[1,2],[1,2]),target=LinearRegression())
-    for name in ('RePPI','CalPPI','StratPPI','ASI','RASI','BAI','FAB-PPI','Cluster-PPI','RG','MLE'):
+    for name in ('RePPI','CalPPI','StratPPI','BAI','FAB-PPI','Cluster-PPI','RG','MLE'):
         assert LinearRegression not in get_method(name).supported_targets
         with pytest.raises(TypeError,match='does not support target LinearRegression'):
             get_method(name).inference(data,target=LinearRegression())
@@ -171,12 +171,15 @@ def test_coefficient_experiment_keeps_target_features_separate_from_predictor_fe
     from dataset.regression_sim import RegressionDGP
     cfg=RegressionConfig(reps=2,n=400,budget=100,train_size=80,pilot_size=50,burn_in=20)
     frame,summary=run_linear_experiment(cfg,('homoskedastic',))
-    assert len(frame)==2*4*6
+    assert len(frame)==2*7*6
     np.testing.assert_allclose(RegressionDGP.projection_coefficients(),[1,.8,-.6,0,0,0])
-    focus=summary[summary.coordinate==1]
+    focus=summary[(summary.coordinate==1)&(summary.group=='given_labels')]
     assert set(focus.method)=={'OLS','PPI','PPI++','PSPA'}
     assert (focus.truth==.8).all()
-    assert (frame.training_labels==80).all() and (frame.total_labels==180).all()
+    assert (frame.training_labels==80).all()
+    assert (frame[frame.group=='given_labels'].total_labels==180).all()
+    assert set(frame[frame.group=='select_labels'].method)=={'Uniform+IPW','ASI','RASI'}
+    np.testing.assert_array_equal(frame.total_labels.to_numpy(),(frame.actual_labels+frame.training_labels+frame.pilot_labels).to_numpy())
     matrix=frame[(frame.rep==0)&(frame.method=='PPI++')].sort_values('coordinate')
     cov=np.array([json.loads(row) for row in matrix.covariance_row])
     np.testing.assert_allclose(np.diag(cov),matrix.standard_error.to_numpy()**2)

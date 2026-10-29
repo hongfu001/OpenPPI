@@ -4,8 +4,8 @@ from copy import deepcopy
 from dataclasses import dataclass
 import numpy as np
 
-from ..common.data import ActiveData
-from ..common.targets import Mean
+from ..common.data import ActiveData, ActiveRegressionData
+from ..common.targets import Mean, LinearRegression
 
 
 class SamplingDesign(ABC):
@@ -82,7 +82,30 @@ class LabelRequest:
         return build(self.predictions, observed, self.queried, self.propensities)
 
 
-def select_for_labeling(predictions, *, target, design, budget, scores=None, random_state=None):
+@dataclass(frozen=True)
+class RegressionLabelRequest(LabelRequest):
+    """A label-free selection request retaining the target covariate snapshot."""
+    covariates: np.ndarray = None
+
+    def __post_init__(self):
+        super().__post_init__()
+        v=np.array(self.covariates,dtype=float,copy=True)
+        if v.ndim!=2 or len(v)!=len(self.predictions) or not np.isfinite(v).all():
+            raise ValueError('Regression requests require finite covariates aligned with predictions')
+        v.setflags(write=False)
+        object.__setattr__(self,'covariates',v)
+
+    def with_labels(self,labels):
+        labels=np.asarray(labels,dtype=float)
+        if labels.shape!=(len(self.indices),):
+            raise ValueError('Require one label per entry of indices')
+        observed=np.full(len(self.queried),np.nan)
+        observed[self.indices]=labels
+        return ActiveRegressionData(self.predictions,observed,self.queried,self.propensities,
+                                    covariates=self.covariates)
+
+
+def select_for_labeling(predictions, *, target, design, budget, scores=None, random_state=None, covariates=None):
     """Select one batch of rows to label from fixed-model predictions.
 
     Reads no labels. scores defaults to target.sampling_scores; pass
@@ -92,19 +115,29 @@ def select_for_labeling(predictions, *, target, design, budget, scores=None, ran
     unless the design overrides sample), and is recorded in the request.
     Label rows request.indices, then call with_labels.
     """
-    if not isinstance(target, Mean):
-        raise TypeError('Only the Mean target is currently supported')
+    if not isinstance(target, (Mean, LinearRegression)):
+        raise TypeError('Only Mean and LinearRegression targets are supported')
+    if isinstance(target, LinearRegression) and covariates is None:
+        raise ValueError('LinearRegression selection requires target covariates for the full pool')
     p = np.asarray(predictions, dtype=float)
     if p.ndim != 1 or len(p) < 2 or not np.isfinite(p).all() or not 0 < budget < len(p):
         raise ValueError('Require a prediction vector with n >= 2 and 0 < budget < n')
     if not isinstance(design, SamplingDesign):
         raise TypeError('design must implement SamplingDesign')
+    if isinstance(target, LinearRegression):
+        from ..common.regression import design_matrix, checked_inverse
+        v=design_matrix(covariates,target)
+        if len(v)!=len(p) or len(v)<=v.shape[1]:
+            raise ValueError('Regression covariates must align with a pool larger than the coefficient dimension')
+        checked_inverse(v.T@v/len(v),target.max_condition,name='Active pool Gram matrix',positive=True)
     if scores is None:
         scores = target.sampling_scores(np.empty((len(p), 0)), p)
     else:
         scores = np.asarray(scores, dtype=float)
         if scores.shape != p.shape or not np.isfinite(scores).all() or (scores < 0).any():
             raise ValueError('scores must be finite, nonnegative and aligned with predictions')
+    if isinstance(target, LinearRegression) and type(design).sample is not SamplingDesign.sample:
+        raise TypeError('Regression IPW requires independent Bernoulli queries; dependent designs need their own covariance')
     design = deepcopy(design).calibrate(scores, budget / len(p))
     propensities = np.asarray(design.probability(scores), dtype=float)
     if propensities.shape != p.shape or not np.isfinite(propensities).all() \
@@ -113,4 +146,6 @@ def select_for_labeling(predictions, *, target, design, budget, scores=None, ran
     queried = np.asarray(design.sample(scores, propensities, np.random.default_rng(random_state)))
     if queried.shape != p.shape or queried.dtype.kind != 'b':
         raise ValueError('Sampling design must return one boolean per row')
+    if isinstance(target, LinearRegression):
+        return RegressionLabelRequest(p, propensities, queried, design, covariates)
     return LabelRequest(p, propensities, queried, design)
