@@ -14,7 +14,14 @@ OpenPPI is a Python library for prediction-powered inference: valid confidence i
 
 # Overview
 
-OpenPPI supports population means with binary or continuous outcomes, plus an linear-regression coefficient target for OLS, PPI, PPI++, PSPA, ASI and RASI. RG/MLE require binary labels and judgments; the current cluster and multi-source data containers also retain their binary-label validation. It implements the following methods. The last column is the name in the method registry, `openppi.get_method(name)`.
+## Supported targets
+
+| Target | Outcomes | Methods |
+| ------ | -------- | ------- |
+| `Mean()` | binary or continuous | all registered methods except OLS; RG and MLE require binary labels and judgments, and the cluster and multi-source containers currently require binary labels |
+| `LinearRegression(fit_intercept, focus)` | continuous | OLS, PPI, PPI++, PSPA (passive); ASI, RASI (active) |
+
+The tables below list the implemented methods. The last column is the name in the method registry, `openppi.get_method(name)`.
 
 ## Prediction-Powered Inference
 
@@ -44,30 +51,25 @@ OpenPPI supports population means with binary or continuous outcomes, plus an li
 
 | Method | Sampling component | Inference component | Data |
 | ------ | ------------------ | ------------------- | ---- |
+| OLS | pre-split samples | `OLS()` | `RegressionData` |
+| PPI | pre-split samples | `TwoSample(lam=1.0)` | `PPIData` / `RegressionData` |
+| PPI++ | pre-split samples | `TwoSample(lam='tuned')` | `PPIData` / `RegressionData` |
+| PSPA | pre-split samples | `PSPA()` | `PPIData` / `RegressionData` |
+| RG / MLE | pre-split samples | `RoganGladen()` / `MisclassificationMLE()` | `PPIData` |
 | CalPPI / LinearCalPPI | pre-split samples | `CalibratedPPI(calibration='isotonic' / 'linear')` | `PPIData` |
-| StratPPI | `stratified_allocate` (optional budget planner) | `StratPPI()` | `StratifiedPPIData` |
-| PPI | pre-split samples | `TwoSample(lam=1.0)` | `PPIData` |
-| PPI++ | pre-split samples | `TwoSample(lam='tuned')` | `PPIData` |
 | RePPI | pre-split samples | `RePPI()` | `PPIData` |
 | FAB-PPI | pre-split samples | `FABPPI()` | `PPIData` |
 | Cluster-PPI | pre-split samples | `ClusterRobustPPI()` | `ClusteredPPIData` |
+| StratPPI | `stratified_allocate` (optional budget planner) | `StratPPI()` | `StratifiedPPIData` |
 | MultiPPI | `multi_allocate` | `MultiPPI()` | `MultiPPIData` |
 | ASI | `Uncertainty(tau=.5)` | `ActiveRegressionIPW()` | `ActiveData` / `ActiveRegressionData` |
 | RASI | burn-in, then `RobustDesign.fit(...)` | `ActiveRegressionIPW()` | `ActiveData` / `ActiveRegressionData` |
 | FTRL | `FTRLDesign()` | `IPW()` | `ActiveData` |
 | BAI | `BalancedDesign()` | `BAI()` | `BalancedActiveData` |
 
-ASI and RASI use the mean/regression IPW dispatcher, while FTRL retains the mean IPW estimator; PPI and PPI++ share the two-sample estimator and differ only in λ. Components can be combined when the target, data and sampling-design covariance agree.
+PPI and PPI++ share the two-sample estimator and differ only in λ; ASI and RASI use the mean/regression IPW dispatcher, while FTRL retains the mean IPW estimator. Components can be combined when the target, data and sampling-design covariance agree. For the supported target/data mapping of a method, inspect `get_method(name).target_data_types`.
 
-## TODO
-
-OpenPPI is still under active development. We will add the following features down the road:
-
-- Quantile, OLS and GLM targets, and the M-estimation versions of PPI++, FAB-PPI and Cluster-Robust PPI++.
-- Continuous labels for mean estimation.
-- Sequential (online) active inference in the core library; it currently lives in `examples/simulation/online.py`.
-- Labeling-design planning formulas for clustered data (Appendix C of Cluster-Robust PPI).
-- Confidence sequences with anytime-valid guarantees.
+# Getting Started
 
 ## Installation
 
@@ -81,18 +83,7 @@ python -m pip install -e '.[simulation,test]'
 
 The package is imported as `openppi`.
 
-## Unit Test
-
-Each method is tested against hand calculations, the formulas of the official code and Monte Carlo coverage. The repeated-sampling coverage checks are marked `slow`; skip them for a quick run:
-
-```sh
-python -m pytest -m "not slow"     # about 2 seconds
-python -m pytest                   # everything, about 45 seconds
-```
-
-If an Anaconda environment crashes while loading the readline debugging dependency, use `python -m pytest -p no:debugging`.
-
-## Examples
+## Mean estimation
 
 Here is a simple example of power-tuned PPI++ for a binary mean, with an independently trained model:
 
@@ -129,69 +120,11 @@ record = request.with_labels(annotate(request.indices))   # labels only for the 
 result = recipe.inference(record, target=Mean(), alpha=.05)
 ```
 
-Every method has an executed notebook in [examples/simulation](examples/simulation) (`ppi.ipynb`, `ppi_plus_plus.ipynb`, `asi.ipynb`, ...). They run from that folder, so the simulated `dataset` and `model` packages import directly. The repeated ASI experiment and its plots:
+`PPIData` accepts finite real outcomes and predictions. For continuous outcomes in active tasks, use `Mean(outcome_type='continuous')` and pass explicit nonnegative `scores=`; the binary probability-uncertainty rule is never applied implicitly in continuous mode.
 
-```sh
-cd examples/simulation
-python coverage.py --reps 100          # writes results_asi/
-jupyter notebook comparison.ipynb      # coverage, width and estimates by policy
-```
+## Linear regression
 
-The [method reference](docs/methods.md) documents each method's interface, formulas, differences from the official implementations, and validation results.
-
-## Repository layout
-
-```text
-openppi/              installable core library (NumPy and SciPy only)
-├── sampling/         which rows to label, one file per mechanism: uniform, uncertainty, robust,
-│                     balanced, ftrl, allocation
-├── inference/        estimators, one file per estimator: ipw (IPW), two_sample (TwoSample),
-│                     recalibrated (RePPI), fab (FABPPI), cluster (ClusterRobustPPI), multi (MultiPPI),
-│                     balanced (BAI)
-├── common/           data structures and split(), targets, InferenceResult, shared formulas
-└── methods.py        registry: method = sampling component + inference component
-examples/
-├── simulation/       notebooks per method, coverage.py, online.py, simulated dataset/ and model/
-└── real_data/        (to come)
-tests/                unit and coverage tests (examples/simulation/test_online.py covers online.py)
-docs/methods.md       method reference
-```
-
-## Citation
-
-If you find our repository useful for your research, please consider citing:
-
-```bibtex
-@software{openppi,
-  title = {OpenPPI: An Open-Source Framework for Prediction-Powered Inference},
-  author = {Gao, Hongfu and Zhou, Wang and Liu, Pengfei and Hu, Jiang},
-  url = {https://github.com/hongfu001/OpenPPI},
-  year = {2026}
-}
-```
-
-## Contributors
-
-- Hongfu Gao
-- Wang Zhou
-- Pengfei Liu
-- Jiang Hu
-
-## Continuous-response regression simulation
-
-The original binary simulations remain available. The new [regression notebook](examples/simulation/regression.ipynb) compares fixed-predictor mean inference for homoskedastic and heteroskedastic continuous labels, both with exact population mean **1**:
-
-```sh
-python examples/simulation/regression.py --reps 100 --out examples/simulation/results_regression
-```
-
-Given-label methods share independently trained predictions, labeled data and unlabeled data: Label-only, PPI, PPI++, PSPA, RePPI, CalPPI and LinearCalPPI. The selection group compares Uniform+IPW, ASI, RASI, BAI, FTRL and StratPPI with their respective sampling rules. StratPPI collects fresh conditional samples under a pilot-planned stratified allocation. Summaries report coverage, width, bias, RMSE and actual labels, with predictor-training, error-pilot and burn-in label costs shown separately. Default selection budgets are expected counts for Bernoulli designs; no equality of total labeling cost is implied.
-
-`PPIData` accepts finite real outcomes and predictions. Use `Mean(outcome_type='continuous')` for active regression tasks, and pass explicit nonnegative `scores=`; the binary probability-uncertainty rule is never applied implicitly in continuous mode. `SimulationLearner` and `SklearnModel` return raw predictions when `outcome_type='continuous'`. See [method notes](docs/methods.md#continuous-response-mean-simulation) for the data-generating model, score choices and online interface.
-
-## Linear-regression M-estimator
-
-The passive coefficient-inference stage supports **OLS, PPI, PPI++ and PSPA**; **ASI and RASI** also support active coefficient inference, while preserving the existing mean interface. Target covariates V define the population least-squares projection; the independent predictor may use richer features Z. The interfaces keep those roles separate:
+The squared-loss M-estimator supports **OLS, PPI, PPI++ and PSPA** for passive coefficient inference, and **ASI and RASI** for active coefficient inference. Target covariates V define the population least-squares projection; the independent predictor may use richer features Z. The interfaces keep those roles separate:
 
 ```python
 from openppi import LinearRegression, RegressionData, get_method
@@ -205,17 +138,9 @@ result = get_method('PPI++').inference(
 print(result.estimate, result.covariance, result.confidence_interval)
 ```
 
-Covariates exclude the intercept. `focus` is a zero-based coordinate **after** adding the intercept, so `focus=1` targets the first slope. Intervals are pointwise, not simultaneous. For the supported-target/data mapping, inspect `get_method('PPI++').target_data_types`. ASI/RASI use `ActiveRegressionData` with coefficient-specific scores. Other registered methods do not yet advertise regression support.
+Covariates exclude the intercept. `focus` is a zero-based coordinate **after** adding the intercept, so `focus=1` targets the first slope. Intervals are pointwise, not simultaneous.
 
-```sh
-python examples/simulation/regression.py --target linear --focus 1 --reps 100
-```
-
-The [coefficient notebook](examples/simulation/linear_regression.ipynb) shows coefficients, covariance, the focus-coefficient comparison and all-coefficient supplement. This stage implements the squared-loss M-estimator rather than a general loss-optimization framework. See [derivations and reference differences](docs/methods.md#linear-regression-m-estimator-first-stage).
-
-### Active regression: ASI and RASI
-
-Both papers explicitly support convex M-estimation, including linear-regression coefficients. The implemented target here is `LinearRegression`, not an arbitrary user-supplied loss. For ASI, train an absolute-error predictor on independent pilot labels and select with a coefficient-specific score:
+For ASI, train an absolute-error predictor on independent pilot labels and select with a coefficient-specific score:
 
 ```python
 from openppi import LinearRegression, Uncertainty, linear_regression_scores, select_for_labeling, get_method
@@ -228,4 +153,99 @@ record = request.with_labels(annotate(request.indices))
 result = get_method('ASI').inference(record, target=target)
 ```
 
-RASI's `RobustDesign.fit(..., target=target, covariates=V_burn, reference_covariates=V_pool)` fits on burn-in labels, robustifies the focused errors and optionally selects its radius by coefficient-score cross-validation. See the [active coefficient notebook](examples/simulation/active_linear_regression.ipynb) for the full two-batch flow. Inference solves the active regression score equation with a full matrix sandwich; it does not substitute a mean standard error. The shared coefficient experiment now reports `given_labels` and `select_labels` groups separately, including all labeling costs.
+RASI's `RobustDesign.fit(..., target=target, covariates=V_burn, reference_covariates=V_pool)` fits on burn-in labels, robustifies the focused errors and optionally selects its radius by coefficient-score cross-validation. Active inference solves the regression score equation with a full matrix sandwich rather than a mean standard error. See [derivations and reference differences](docs/methods.md#linear-regression-m-estimator-first-stage).
+
+# Experiments
+
+Every method has an executed notebook in [examples/simulation](examples/simulation) (`ppi.ipynb`, `ppi_plus_plus.ipynb`, `asi.ipynb`, ...). They run from that folder, so the simulated `dataset` and `model` packages import directly. The [method reference](docs/methods.md) documents each method's interface, formulas, differences from the official implementations, and validation results.
+
+## Binary mean
+
+The repeated ASI experiment and its plots:
+
+```sh
+cd examples/simulation
+python coverage.py --reps 100          # writes results_asi/
+jupyter notebook comparison.ipynb      # coverage, width and estimates by policy
+```
+
+## Continuous mean
+
+The [regression notebook](examples/simulation/regression.ipynb) compares fixed-predictor mean inference for homoskedastic and heteroskedastic continuous labels, both with exact population mean **1**:
+
+```sh
+python examples/simulation/regression.py --reps 100 --out examples/simulation/results_regression
+```
+
+Given-label methods share independently trained predictions, labeled data and unlabeled data: Label-only, PPI, PPI++, PSPA, RePPI, CalPPI and LinearCalPPI. The selection group compares Uniform+IPW, ASI, RASI, BAI, FTRL and StratPPI with their respective sampling rules; StratPPI collects fresh conditional samples under a pilot-planned stratified allocation. Summaries report coverage, width, bias, RMSE and actual labels, with predictor-training, error-pilot and burn-in label costs shown separately. Default selection budgets are expected counts for Bernoulli designs; no equality of total labeling cost is implied. See [method notes](docs/methods.md#continuous-response-mean-simulation) for the data-generating model, score choices and online interface.
+
+## Linear-regression coefficients
+
+```sh
+python examples/simulation/regression.py --target linear --focus 1 --reps 100
+```
+
+The [coefficient notebook](examples/simulation/linear_regression.ipynb) shows coefficients, covariance, the focus-coefficient comparison and an all-coefficient supplement; the [active coefficient notebook](examples/simulation/active_linear_regression.ipynb) shows the full two-batch ASI/RASI flow. The experiment reports `given_labels` and `select_labels` groups separately, including all labeling costs.
+
+## Unit Test
+
+Each method is tested against hand calculations, the formulas of the official code and Monte Carlo coverage. The repeated-sampling coverage checks are marked `slow`; skip them for a quick run:
+
+```sh
+python -m pytest -m "not slow"     # about 2 seconds
+python -m pytest                   # everything, about 45 seconds
+```
+
+If an Anaconda environment crashes while loading the readline debugging dependency, use `python -m pytest -p no:debugging`.
+
+# Repository layout
+
+```text
+openppi/              installable core library (NumPy and SciPy only)
+├── sampling/         which rows to label: uniform, uncertainty, robust, regression, balanced,
+│                     ftrl, stratified, allocation
+├── inference/        estimators: ipw (IPW, ActiveRegressionIPW), two_sample (TwoSample),
+│                     linear (OLS), adaptive (PSPA), misclassification (RG, MLE),
+│                     calibrated (CalibratedPPI), recalibrated (RePPI), fab (FABPPI),
+│                     cluster (ClusterRobustPPI), stratified (StratPPI), multi (MultiPPI),
+│                     balanced (BAI)
+├── common/           data structures and split(), targets, regression helpers,
+│                     InferenceResult, shared formulas
+└── methods.py        registry: method = sampling component + inference component
+examples/
+├── simulation/       notebooks per method, coverage.py, regression.py, online.py,
+│                     simulated dataset/ and model/
+└── real_data/        (to come)
+tests/                unit and coverage tests (examples/simulation/test_online.py covers online.py)
+docs/methods.md       method reference
+```
+
+# TODO
+
+OpenPPI is still under active development. We will add the following features down the road:
+
+- Quantile and GLM targets, general convex M-estimation, and the M-estimation versions of FAB-PPI and Cluster-Robust PPI++.
+- Regression targets for the remaining registered methods.
+- Sequential (online) active inference in the core library; it currently lives in `examples/simulation/online.py`.
+- Labeling-design planning formulas for clustered data (Appendix C of Cluster-Robust PPI).
+- Confidence sequences with anytime-valid guarantees.
+
+# Citation
+
+If you find our repository useful for your research, please consider citing:
+
+```bibtex
+@software{openppi,
+  title = {OpenPPI: An Open-Source Framework for Prediction-Powered Inference},
+  author = {Gao, Hongfu and Liu, Pengfei and Hu, Jiang and Zhou, Wang},
+  url = {https://github.com/hongfu001/OpenPPI},
+  year = {2026}
+}
+```
+
+# Contributors
+
+- Hongfu Gao
+- Pengfei Liu
+- Jiang Hu
+- Wang Zhou
