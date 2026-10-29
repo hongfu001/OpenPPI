@@ -19,6 +19,7 @@ openppi/                     # installable core (NumPy and SciPy only)
 │   ├── base.py              # InferenceMethod
 │   ├── ipw.py               # IPW: f + R/pi (Y - f) (ASI, RASI, FTRL)
 │   ├── two_sample.py        # TwoSample(lam=1 | 'tuned' | number), tuned_lambda (PPI, PPI++)
+│   ├── adaptive.py          # PSPA (adaptive mean inference)
 │   ├── recalibrated.py      # RePPI, BinnedMean, three_folds
 │   ├── fab.py               # FABPPI and the FAB formulas: posterior means, spending function, FAB region
 │   ├── cluster.py           # ClusterRobustPPI, cluster_moments
@@ -59,6 +60,7 @@ A method is a sampling component plus an inference component. `openppi/methods.p
 | --- | --- | --- | --- |
 | PPI | `None` | `TwoSample(lam=1.0)` | `PPIData` |
 | PPI++ | `None` | `TwoSample(lam='tuned')` | `PPIData` |
+| PSPA | `None` | `PSPA()` | `PPIData` |
 | RePPI | `None` | `RePPI()` | `PPIData` |
 | FAB-PPI | `None` | `FABPPI()` | `PPIData` |
 | Cluster-PPI | `None` | `ClusterRobustPPI()` | `ClusteredPPIData` |
@@ -388,3 +390,22 @@ If the current Anaconda environment crashes while loading the readline debugging
 
 Planned next: configuration splitting, Quantile/OLS and continuous-label Mean, GLM/M-estimation versions of PPI++, moving the sequential version into the core library, ConfidenceSequence and more checks of valid combinations.
 
+
+## Post-prediction adaptive inference (PSPA)
+
+[Assumption-Lean and Data-Adaptive Post-Prediction Inference](https://arxiv.org/abs/2311.14220), Miao, Miao, Wu, Zhao & Lu (2024). The implementation specializes Section 2.1 and Algorithm 1 to the project's binary mean target, checked against the official [pspa_y(method="mean")](https://github.com/qlu-lab/pspa/blob/main/R/main.R) and [optim_weights, optim_est, Sigma_cal](https://github.com/qlu-lab/pspa/blob/main/R/utils.R), commit `8e77b124d58b884730484d1923d909a61ed70025`. The Python implementation evaluates the scalar formulas using NumPy; no R runtime dependency or vendored R code is added.
+
+```python
+from openppi import Mean, get_method
+
+# data is PPIData from independent labeled and unlabeled inference samples.
+result = get_method('PSPA').inference(data, target=Mean(), alpha=.05)
+print(result.estimate, result.confidence_interval)
+print(result.diagnostics['prediction_weight'])
+```
+
+- **Weight**: with n labeled and N unlabeled rows, `w = clip(Cov(Y, f_L) / (Var(f_L) + (n/N) Var(f_U)), 0, 1)`. All variances and covariances use `ddof=1`, matching R's `cov`. The official implementation clips at both 0 and 1; the supplied paper's Algorithm 1 prints only the upper cap. We follow the official code, so anticorrelated predictions receive zero weight.
+- **Estimate and interval**: `theta = mean(Y) + w * (mean(f_U) - mean(f_L))`, with `SE = sqrt(Var(Y - w*f_L)/n + w**2 * Var(f_U)/N)` and the shared Wald interval. This is algebraically the scalar `Sigma_cal / n` from the official package. In the mean case the one-step update solves the estimating equation exactly. Constant predictions in both samples give weight zero (the official code otherwise encounters 0/0).
+- **Difference from PPI++**: PSPA uses separate labeled/unlabeled prediction variances and clips the weight to [0, 1]. Our PPI++ uses the pooled prediction variance and an unconstrained weight. PSPA minimizes this empirical variance over [0, 1], including the classical and PPI endpoints; that is not a guarantee of improved finite-sample coverage or true variance for every dataset.
+- **Scope**: `PSPA()` inherits `InferenceMethod`, consumes `PPIData`, and returns `InferenceResult` with the weight and sample counts. The same iid sampling and independent predictor assumptions as PPI apply; confidence intervals are asymptotic. Continuous outcomes, quantiles, OLS/GLM and predicted-covariate inference from the R package are not implemented here.
+- **Validation**: `tests/test_pspa.py` checks the official R numerical fixture, the scalar sandwich formula, the shared interval callback, both weight caps, constant predictions, constrained variance minimization and repeated-sampling coverage with accurate, anticorrelated and constant predictions. `examples/simulation/pspa.ipynb` follows the PPI notebook's split -> target -> inference -> output format.

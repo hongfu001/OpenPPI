@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from functools import partial
 
 from .common.data import ActiveData, BalancedActiveData, ClusteredPPIData, MultiPPIData, PPIData
-from .inference import BAI, IPW, ClusterRobustPPI, FABPPI, MultiPPI, RePPI, TwoSample
+from .inference import BAI, IPW, ClusterRobustPPI, FABPPI, MultiPPI, PSPA, RePPI, TwoSample
 from .sampling import BalancedDesign, FTRLDesign, RobustDesign, Uncertainty, multi_allocate
 
 
@@ -27,6 +27,8 @@ METHODS = {recipe.name: recipe for recipe in (
            'Angelopoulos, Bates, Fannjiang, Jordan & Zrnic, Science 2023'),
     Recipe('PPI++', None, TwoSample(lam='tuned'), PPIData,
            'Angelopoulos, Duchi & Zrnic, Ann. Appl. Stat.'),
+    Recipe('PSPA', None, PSPA(), PPIData,
+           'Miao, Miao, Wu, Zhao & Lu, Assumption-Lean and Data-Adaptive Post-Prediction Inference, 2024'),
     Recipe('RePPI', None, RePPI(), PPIData,
            'Ji, Lei & Zrnic, Predictions as Surrogates, Biometrika'),
     Recipe('FAB-PPI', None, FABPPI(), PPIData,

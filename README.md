@@ -24,6 +24,7 @@ OpenPPI currently targets the mean of binary labels and implements the following
 | 2026 | **[Cluster-Robust Prediction-Powered Inference](https://arxiv.org/abs/2610.09601)** | Arxiv | [Link](https://github.com/Michael-Howes/ppi_py) | `Cluster-PPI` |
 | 2026 | **[Predictions as Surrogates: Revisiting Surrogate Outcomes in the Age of AI](https://arxiv.org/abs/2501.09731)** | Biometrika | [Link](https://github.com/Wenlong2000/RePPI) | `RePPI` |
 | 2025 | **[FAB-PPI: Frequentist, Assisted by Bayes, Prediction-Powered Inference](https://arxiv.org/abs/2502.02363)** | ICML'25 | [Link](https://github.com/stefanocortinovis/fab-ppi) | `FAB-PPI` |
+| 2024 | **[Assumption-Lean and Data-Adaptive Post-Prediction Inference](https://arxiv.org/abs/2311.14220)** | Arxiv | [Link](https://github.com/qlu-lab/pspa) | `PSPA` |
 | 2023 | **[PPI++: Efficient Prediction-Powered Inference](https://arxiv.org/abs/2311.01453)** | Ann. Appl. Stat. | [Link](https://github.com/aangelopoulos/ppi_py) | `PPI++` |
 | 2023 | **[Prediction-Powered Inference](https://arxiv.org/abs/2301.09633)** | Science | [Link](https://github.com/aangelopoulos/ppi_py) | `PPI` |
 
