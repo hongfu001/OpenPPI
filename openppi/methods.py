@@ -8,9 +8,12 @@ so no state is shared between uses. `inference` is a configured, stateless estim
 from dataclasses import dataclass
 from functools import partial
 
-from .common.data import ActiveData, BalancedActiveData, ClusteredPPIData, MultiPPIData, PPIData
-from .inference import BAI, IPW, ClusterRobustPPI, FABPPI, MultiPPI, PSPA, RePPI, TwoSample, RoganGladen, MisclassificationMLE
-from .sampling import BalancedDesign, FTRLDesign, RobustDesign, Uncertainty, multi_allocate
+from .common.data import (ActiveData, BalancedActiveData, ClusteredPPIData, MultiPPIData,
+                          PPIData, StratifiedPPIData)
+from .inference import (BAI, IPW, ClusterRobustPPI, FABPPI, MisclassificationMLE, MultiPPI,
+                        PSPA, RePPI, RoganGladen, StratPPI, TwoSample)
+from .sampling import (BalancedDesign, FTRLDesign, RobustDesign, Uncertainty, multi_allocate,
+                       stratified_allocate)
 
 
 @dataclass(frozen=True)
@@ -31,6 +34,8 @@ METHODS = {recipe.name: recipe for recipe in (
            'Rogan & Gladen 1978; Chen, Lu, Li, Guo & Li, ICML 2026'),
     Recipe('MLE', None, MisclassificationMLE(), PPIData,
            'Chen, Lu, Li, Guo & Li, Efficient Inference for Noisy LLM-as-a-Judge Evaluation, ICML 2026'),
+    Recipe('StratPPI', stratified_allocate, StratPPI(), StratifiedPPIData,
+           'Fisch, Maynez, Hofer, Dhingra, Globerson & Cohen, NeurIPS 2024'),
     Recipe('PSPA', None, PSPA(), PPIData,
            'Miao, Miao, Wu, Zhao & Lu, Assumption-Lean and Data-Adaptive Post-Prediction Inference, JMLR 26(179):1–31, 2025'),
     Recipe('RePPI', None, RePPI(), PPIData,

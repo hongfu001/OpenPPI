@@ -1,5 +1,6 @@
 """Validated snapshots of the information available at query time."""
 from dataclasses import dataclass, field
+from types import MappingProxyType
 import numpy as np
 
 
@@ -190,3 +191,31 @@ class BalancedActiveData(ActiveData):
             raise ValueError('balancing must be a finite n x p matrix aligned with the other arrays')
         balancing.setflags(write=False)
         object.__setattr__(self, 'balancing', balancing)
+
+
+@dataclass(frozen=True)
+class StratifiedPPIData:
+    """Independent within-stratum PPI samples with known population weights.
+
+    strata maps each stratum key to PPIData; weights maps the same keys to
+    strictly positive population probabilities summing to one. The fixed
+    partition and weights must be chosen independently of inference labels.
+    Sample fractions need not equal population probabilities. Each stratum
+    needs two labeled and two unlabeled rows, as validated by PPIData.
+    Uncertainty in estimated population weights is not included.
+    """
+    strata: dict
+    weights: dict
+
+    def __post_init__(self):
+        strata, weights = dict(self.strata), dict(self.weights)
+        if not strata or strata.keys() != weights.keys():
+            raise ValueError('strata and weights must have the same nonempty keys')
+        if any(not isinstance(data, PPIData) for data in strata.values()):
+            raise TypeError('Each stratum must be PPIData')
+        weights = {key: float(value) for key, value in weights.items()}
+        values = np.array(list(weights.values()))
+        if not np.isfinite(values).all() or (values <= 0).any() or not np.isclose(values.sum(), 1., rtol=0, atol=1e-10):
+            raise ValueError('Population weights must be positive, finite and sum to one')
+        object.__setattr__(self, 'strata', MappingProxyType(strata))
+        object.__setattr__(self, 'weights', MappingProxyType(weights))

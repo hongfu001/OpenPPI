@@ -1,7 +1,7 @@
 """Shared data structures, targets, results and formulas."""
-from .data import ActiveData, BalancedActiveData, ClusteredPPIData, MultiPPIData, PPIData, split
+from .data import ActiveData, BalancedActiveData, ClusteredPPIData, MultiPPIData, PPIData, StratifiedPPIData, split
 from .results import InferenceResult
 from .targets import Mean, Target
 
-__all__ = ['ActiveData', 'BalancedActiveData', 'ClusteredPPIData', 'MultiPPIData', 'PPIData', 'split',
+__all__ = ['ActiveData', 'BalancedActiveData', 'ClusteredPPIData', 'MultiPPIData', 'PPIData', 'StratifiedPPIData', 'split',
            'InferenceResult', 'Mean', 'Target']

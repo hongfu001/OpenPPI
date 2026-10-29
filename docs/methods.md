@@ -20,6 +20,7 @@ openppi/                     # installable core (NumPy and SciPy only)
 │   ├── ipw.py               # IPW: f + R/pi (Y - f) (ASI, RASI, FTRL)
 │   ├── two_sample.py        # TwoSample(lam=1 | 'tuned' | number), tuned_lambda (PPI, PPI++)
 │   ├── misclassification.py # RoganGladen, MisclassificationMLE (hard binary judges)
+│   ├── stratified.py        # StratPPI (known population weights, within-stratum corrections)
 │   ├── adaptive.py          # PSPA (adaptive mean inference)
 │   ├── recalibrated.py      # RePPI, BinnedMean, three_folds
 │   ├── fab.py               # FABPPI and the FAB formulas: posterior means, spending function, FAB region
@@ -59,6 +60,7 @@ A method is a sampling component plus an inference component. `openppi/methods.p
 
 | Method | `sampling` | `inference` | `data_type` |
 | --- | --- | --- | --- |
+| StratPPI | `stratified_allocate` | `StratPPI()` | `StratifiedPPIData` |
 | PPI | `None` | `TwoSample(lam=1.0)` | `PPIData` |
 | PPI++ | `None` | `TwoSample(lam='tuned')` | `PPIData` |
 | RG | `None` | `RoganGladen()` | `PPIData` |
@@ -447,3 +449,39 @@ The observed information is diagonal in `(p,s,t)`, with inverse diagonal `p*(1-p
 **Intervals and PPI++.** Both methods default to the official logit Wald interval: clamp theta to `[1e-6,1-1e-6]`, transform by logit, use `SE/(theta*(1-theta))`, and transform the endpoints back. The common `interval=` callback remains configurable. This differs from OpenPPI's default untransformed PPI++ Wald interval. Under regular binary models MLE and optimally calibrated PPI++ are asymptotically efficient, but they need not agree numerically in finite samples; our PPI++ also uses a different pooled prediction-variance tuning convention. RG can be much less efficient near a random judge. No finite-sample coverage guarantee is claimed.
 
 **Validation.** `tests/test_misclassification.py` contains three fixtures from each official R function (point, variance and interval, plus MLE error rates), including RG estimates clipped to each boundary. `tests/fixtures/generate_misclassification.R` regenerates them from the pinned official sources. Tests also cover hard-label validation, random and reversed judges, missing classes/cells, alpha-dependent adjustment, interval callbacks, the joint likelihood optimum, and repeated-sampling coverage. The executed `examples/simulation/misclassification.ipynb` compares RG, MLE and PPI++ with a fixed hard binary judge.
+
+## Stratified prediction-powered inference (StratPPI)
+
+Fisch, Maynez, Hofer, Dhingra, Globerson & Cohen, [Stratified Prediction-Powered Inference for Effective Hybrid Evaluation of Language Models](https://proceedings.neurips.cc/paper_files/paper/2024/hash/c9fcd02e6445c7dfbad6986abee53d0d-Abstract.html), NeurIPS 2024. The supplied arXiv PDF uses the shorter title “Stratified Prediction-Powered Inference for Hybrid Language Model Evaluation.” The implementation specializes Algorithm 1 and Sections 4.2–4.3 to the project's binary mean target, directly from the paper; no official implementation was used for numerical validation.
+
+```python
+from openppi import Mean, PPIData, StratifiedPPIData, get_method
+
+# Independent inference samples within each fixed stratum.
+# Population weights are known probabilities, NOT labeled sample fractions.
+data = StratifiedPPIData(
+    strata={'easy': PPIData(y_easy, f_easy, f_unlabeled_easy),
+            'hard': PPIData(y_hard, f_hard, f_unlabeled_hard)},
+    weights={'easy': .8, 'hard': .2})
+result = get_method('StratPPI').inference(data, target=Mean(), alpha=.05)
+```
+
+**Data and assumptions.** `StratifiedPPIData(strata, weights)` holds a `PPIData` snapshot for each layer, plus strictly positive population probabilities summing to one. The dictionaries are copied and exposed read-only. The partition must be fixed before inference, exhaustive and mutually exclusive; both samples are iid within each stratum and independent across strata. The predictor is trained independently of inference data. Labels are binary and predictions may be probabilities. Each layer requires at least two labeled and two unlabeled rows. Population weights are treated as known, as in Section 4; their estimation error is not included in the SE. Disproportionate sample allocation is supported and must not be substituted for population weights.
+
+**Estimate and interval (eqs. 8, 13–14).** For stratum k, `theta_k = mean(Y_k) + lambda_k * (mean(f_Uk)-mean(f_Lk))`. Then
+
+```text
+theta = sum_k w_k * theta_k
+SE²   = sum_k w_k² * [Var(Y_k-lambda_k*f_Lk)/n_k
+                      + lambda_k²*Var(f_Uk)/N_k].
+```
+
+All empirical variances use `ddof=1`. The common `InferenceMethod` builds the asymptotic Wald interval `theta ± z*SE`. We use the residual minus sign in eq. 11; the plus sign printed in Algorithm 1 line 11 does not match eqs. 8 and 11. Confidence intervals and point estimates are not clipped to [0,1]. Diagnostics contain each layer's population weight, prediction weight, estimate, counts and variance contribution.
+
+**Prediction weights (eq. 17).** `StratPPI(lam='tuned')` estimates a separate `lambda_k = Cov(Y_k,f_Lk)/[(1+n_k/N_k)*Var(f_k)]`, with the pooled labeled/unlabeled prediction variance convention shared with OpenPPI's PPI++. A finite scalar fixes the same lambda for all strata; a mapping fixes it separately. Negative weights are allowed for means, and constant predictions get weight zero. The default `variance='unlabeled'` uses the separate unlabeled variance in eq. 13; `variance='pooled'` uses the pooled alternative already supported by `TwoSample`. With one stratum of weight one, StratPPI exactly reproduces `TwoSample` with the same lambda and variance option. Tuning and interval construction are asymptotic; the method does not guarantee shorter empirical intervals for every dataset or arbitrary allocation.
+
+**Sample budgets (Proposition 3).** `stratified_allocate(weights, residual_variances, prediction_variances, labeled_budget=..., unlabeled_budget=...)` returns `StratifiedAllocation` containing labeled/unlabeled integer counts and continuous rates keyed by stratum. Supply estimates of `Var(Y-lambda_k*f | k)` and `Var(lambda_k*f | k)`, keeping lambda fixed while planning. The continuous rates are proportional to `w_k*sqrt(variance_k)`. A minimum of two samples per stratum is enforced, redistributing the rest among free strata; counts floor that constrained continuous allocation and distribute remaining rows by marginal variance reduction. Counts sum exactly to their requested budgets. All-zero variance components fall back to population-proportional allocation. These routines plan counts; callers collect iid samples within each layer. They do not claim to optimize lambda and sample sizes jointly.
+
+**Label-free planning (eqs. 20–21).** `confidence_residual_variance(predictions, confidences, lam=1)` evaluates the binary mixture formula `mean(c*(1-c)) + var(c-lam*f, ddof=0)`, where c estimates `P(Y=1|X)`. It implements the general Example 2 formula; it does not use Appendix B's further approximation that drops lambda dependence. If c=f and lambda=1, this reduces to `mean(f*(1-f))`. Confidence misspecification can reduce allocation efficiency. Plan with independent pilot data or label-free information before collecting fresh inference samples, so reusing labels to choose the design does not invalidate fixed-design inference.
+
+**Scope and validation.** General M-estimators, continuous outcomes, learned partitions and uncertainty in estimated population weights are not implemented. `tests/test_stratified.py` checks hand-computed means/SEs for unequal population and sample weights, negative and constant prediction weights, single-stratum reduction, input validation, allocation against eq. 18 and numerical optimization, confidence mixtures, and repeated-sampling coverage under disproportionate stratified sampling. The executed `examples/simulation/stratppi.ipynb` follows the PPI format: independent training and split -> fixed strata and target -> inference -> output, with a label-free allocation example.
