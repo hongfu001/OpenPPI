@@ -21,9 +21,13 @@ class InferenceMethod(ABC):
             raise TypeError(f'{self.name} does not support target {type(target).__name__}')
         if not 0 < alpha < 1:
             raise ValueError('alpha must be in (0, 1)')
-        point, se, diagnostics = self._estimate(data, target)
+        point, se, diagnostics = self._estimate_with_alpha(data, target, alpha)
         ci = self.interval(point, se, alpha, values=diagnostics.pop('values', None))
         return InferenceResult(point, se, ci, alpha, self.name, diagnostics)
+
+    def _estimate_with_alpha(self, data, target, alpha):
+        """Allow finite-sample estimators to depend on the requested error rate."""
+        return self._estimate(data, target)
 
     @abstractmethod
     def _estimate(self, data, target):

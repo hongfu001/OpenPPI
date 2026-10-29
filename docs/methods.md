@@ -19,6 +19,7 @@ openppi/                     # installable core (NumPy and SciPy only)
 │   ├── base.py              # InferenceMethod
 │   ├── ipw.py               # IPW: f + R/pi (Y - f) (ASI, RASI, FTRL)
 │   ├── two_sample.py        # TwoSample(lam=1 | 'tuned' | number), tuned_lambda (PPI, PPI++)
+│   ├── misclassification.py # RoganGladen, MisclassificationMLE (hard binary judges)
 │   ├── adaptive.py          # PSPA (adaptive mean inference)
 │   ├── recalibrated.py      # RePPI, BinnedMean, three_folds
 │   ├── fab.py               # FABPPI and the FAB formulas: posterior means, spending function, FAB region
@@ -60,6 +61,8 @@ A method is a sampling component plus an inference component. `openppi/methods.p
 | --- | --- | --- | --- |
 | PPI | `None` | `TwoSample(lam=1.0)` | `PPIData` |
 | PPI++ | `None` | `TwoSample(lam='tuned')` | `PPIData` |
+| RG | `None` | `RoganGladen()` | `PPIData` |
+| MLE | `None` | `MisclassificationMLE()` | `PPIData` |
 | PSPA | `None` | `PSPA()` | `PPIData` |
 | RePPI | `None` | `RePPI()` | `PPIData` |
 | FAB-PPI | `None` | `FABPPI()` | `PPIData` |
@@ -409,3 +412,38 @@ print(result.diagnostics['prediction_weight'])
 - **Difference from PPI++**: PSPA uses separate labeled/unlabeled prediction variances and clips the weight to [0, 1]. Our PPI++ uses the pooled prediction variance and an unconstrained weight. PSPA minimizes this empirical variance over [0, 1], including the classical and PPI endpoints; that is not a guarantee of improved finite-sample coverage or true variance for every dataset.
 - **Scope**: `PSPA()` inherits `InferenceMethod`, consumes `PPIData`, and returns `InferenceResult` with the weight and sample counts. The same iid sampling and independent predictor assumptions as PPI apply; confidence intervals are asymptotic. Continuous outcomes, quantiles, OLS/GLM and predicted-covariate inference from the R package are not implemented here.
 - **Validation**: `tests/test_pspa.py` checks the official R numerical fixture, the scalar sandwich formula, the shared interval callback, both weight caps, constant predictions, constrained variance minimization and repeated-sampling coverage with accurate, anticorrelated and constant predictions. `examples/simulation/pspa.ipynb` follows the PPI notebook's split -> target -> inference -> output format.
+
+## Binary misclassification correction: RG and MLE
+
+Implements the binary methods benchmarked in [Efficient Inference for Noisy LLM-as-a-Judge Evaluation](https://arxiv.org/abs/2601.05420), Chen, Lu, Li, Guo & Li (2026), following [debiasLLMReporting](https://github.com/yiqunchen/debias-llm-as-a-judge), commit `632a89565883be25d94d38b7cd3ca78d62a491f4`. RG originates with Rogan & Gladen (1978). No new sampling component or dependency is needed.
+
+```python
+from openppi import Mean, PPIData, get_method
+
+# All predictions must be hard 0/1 judgments. Threshold probabilities explicitly
+# before constructing this record if that is the judge definition you intend.
+data = PPIData(labels=y_labeled, labeled_predictions=judge_labeled,
+               unlabeled_predictions=judge_unlabeled)
+rg = get_method('RG').inference(data, target=Mean(), alpha=.05)
+mle = get_method('MLE').inference(data, target=Mean(), alpha=.05)
+```
+
+**Model and assumptions.** Let `theta=P(Y=1)`, `q1=P(judge=1|Y=1)` (sensitivity), `q0=P(judge=0|Y=0)` (specificity), and `J=q0+q1-1`. Then `p=P(judge=1)=theta*q1+(1-theta)*(1-q0)`. Both inference samples must be independent iid draws from the same population, with a fixed judge independent of the inference data. The error rates must transfer across samples; an outcome-stratified calibration sample with a different class balance is not supported by this interface. Soft probabilities are rejected rather than silently rounded.
+
+**RG.** The raw estimator is `(mean(judge_U)+q0_hat-1)/J_hat`. The default follows the R function `rg_point_and_ci`, including its finite-sample adjustment: with `N` unlabeled rows, calibration class counts `m0,m1`, and `z=normal_quantile(1-alpha/2)`, set `p_tilde=(N*p_hat+z**2/2)/(N+z**2)`, `q0_tilde=(correct_negatives+1)/(m0+2)`, `q1_tilde=(correct_positives+1)/(m1+2)`. The adjusted estimator is clipped to [0,1]. Its variance is
+
+```text
+[p_tilde*(1-p_tilde)/(N+z²)
+ + (1-theta)²*q0_tilde*(1-q0_tilde)/(m0+2)
+ + theta²*q1_tilde*(1-q1_tilde)/(m1+2)] / J_tilde².
+```
+
+The point estimate therefore depends on `alpha`, as in R. Both calibration classes must be present. `abs(J_tilde)<eps_J` (default `1e-4`) raises `ValueError` instead of returning R's NA. Negative J is allowed by RG. Diagnostics report adjusted sensitivity/specificity, both raw and adjusted Youden indices, the unclipped estimate and whether clipping occurred. A small nonzero index can still produce a very large standard error.
+
+**MLE.** Fits the joint likelihood of the four calibration cells `(Y,judge)` and the unlabeled judge counts. The binary saturated model has an exact interior solution: `p_hat` is the judge-positive proportion pooled across both samples, `s_hat=P_hat(Y=1|judge=1)` and `t_hat=P_hat(Y=1|judge=0)` use the calibration cells, and `theta_hat=p_hat*s_hat+(1-p_hat)*t_hat`. Recover `q1=p_hat*s_hat/theta_hat` and `q0=(1-p_hat)*(1-t_hat)/(1-theta_hat)`. This exactly maximizes the same likelihood as the R optimizer. No iterative optimizer is necessary for this binary interior case; tests also check agreement with SciPy optimization of the original three-parameter likelihood.
+
+The observed information is diagonal in `(p,s,t)`, with inverse diagonal `p*(1-p)/(n+N)`, `s*(1-s)/n_judge_positive`, `t*(1-t)/n_judge_negative`. Applying the gradient `(s-t,p,1-p)` gives the prevalence variance, equivalent to the observed Fisher inverse in R's `mle_point_and_ci`. The official positive orientation `J>0` is enforced. All four calibration cells must be positive: boundary solutions have nonregular Fisher intervals and raise a clear error here, instead of inheriting the R optimizer's boundary or convergence artifacts. Diagnostics include sensitivity, specificity, J, log likelihood, calibration counts and the closed-form solver designation.
+
+**Intervals and PPI++.** Both methods default to the official logit Wald interval: clamp theta to `[1e-6,1-1e-6]`, transform by logit, use `SE/(theta*(1-theta))`, and transform the endpoints back. The common `interval=` callback remains configurable. This differs from OpenPPI's default untransformed PPI++ Wald interval. Under regular binary models MLE and optimally calibrated PPI++ are asymptotically efficient, but they need not agree numerically in finite samples; our PPI++ also uses a different pooled prediction-variance tuning convention. RG can be much less efficient near a random judge. No finite-sample coverage guarantee is claimed.
+
+**Validation.** `tests/test_misclassification.py` contains three fixtures from each official R function (point, variance and interval, plus MLE error rates), including RG estimates clipped to each boundary. `tests/fixtures/generate_misclassification.R` regenerates them from the pinned official sources. Tests also cover hard-label validation, random and reversed judges, missing classes/cells, alpha-dependent adjustment, interval callbacks, the joint likelihood optimum, and repeated-sampling coverage. The executed `examples/simulation/misclassification.ipynb` compares RG, MLE and PPI++ with a fixed hard binary judge.
