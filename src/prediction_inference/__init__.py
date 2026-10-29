@@ -1,13 +1,13 @@
 from .base import InferenceResult
 from .data import ActiveData, BalancedActiveData, PPIData, RobustActiveData
 from .targets import Mean
-from .methods import ASI, BAI, PPI, PPIPlusPlus, RASI
+from .methods import ASI, BAI, FABPPI, PPI, PPIPlusPlus, RASI
 from .sampling import (select_for_labeling, LabelRequest, Uniform,
                        Uncertainty, tune_tau, BalancedDesign, cube_sample, FTRLDesign, RobustDesign, BurnIn,
                        select_burn_in, robust_active_label, select_constraint,
                        robust_rho, budget_path, active_rule)
 
-__all__ = ['ASI', 'BAI', 'PPI', 'PPIPlusPlus', 'RASI', 'BalancedActiveData', 'BalancedDesign', 'cube_sample', 'FTRLDesign', 'RobustActiveData', 'RobustDesign', 'BurnIn', 'select_burn_in',
+__all__ = ['ASI', 'BAI', 'FABPPI', 'PPI', 'PPIPlusPlus', 'RASI', 'BalancedActiveData', 'BalancedDesign', 'cube_sample', 'FTRLDesign', 'RobustActiveData', 'RobustDesign', 'BurnIn', 'select_burn_in',
            'robust_active_label',
            'select_constraint', 'robust_rho', 'budget_path', 'active_rule', 'Mean', 'ActiveData', 'PPIData',
            'select_for_labeling', 'LabelRequest', 'Uniform', 'Uncertainty', 'tune_tau', 'InferenceResult']

@@ -1,6 +1,6 @@
 # prediction-inference
 
-面向 prediction-assisted inference 的 Python 算法库。目前实现 **ASI、RASI（稳健主动推断）、BAI（平衡主动推断）、FTRL 查询策略、独立两样本 PPI 与 PPI++ 的二元均值估计及终点 Wald 区间**。每种方法继承共同的 `Method`，统一检查输入并返回 `InferenceResult`。
+面向 prediction-assisted inference 的 Python 算法库。目前实现 **ASI、RASI（稳健主动推断）、BAI（平衡主动推断）、FTRL 查询策略、独立两样本 PPI、PPI++ 与 FAB-PPI 的二元均值估计及终点 Wald 区间**。每种方法继承共同的 `Method`，统一检查输入并返回 `InferenceResult`。
 
 ## 安装与运行
 
@@ -8,6 +8,7 @@
 python -m pip install -e '.[simulation,test]'
 PYTHONPATH=src:. python examples/asi_mean.py
 PYTHONPATH=src:. python examples/bai_mean.py
+PYTHONPATH=src:. python examples/fab_ppi_mean.py
 PYTHONPATH=src:. python examples/ftrl_mean.py
 PYTHONPATH=src:. python examples/ppi_mean.py
 PYTHONPATH=src:. python examples/ppi_plus_mean.py
@@ -27,6 +28,7 @@ src/prediction_inference/
 ├── data.py           # ActiveData、PPIData、RobustActiveData、BalancedActiveData
 ├── targets.py        # Target、Mean；唯一的抽样分数定义
 ├── _stats.py         # 私有公式：ipw_correct、wald_interval
+├── _fab.py           # 私有 FAB 公式：马蹄/高斯先验的后验均值、花费函数、FAB 置信区域
 ├── sampling/          # 固定预算、固定模型的抽样：每个方法一个文件
 │   ├── __init__.py
 │   ├── base.py        # 公共部分：SamplingDesign 接口、LabelRequest、select_for_labeling
@@ -39,6 +41,7 @@ src/prediction_inference/
     ├── __init__.py
     ├── asi.py        # ASI(Method)
     ├── bai.py        # BAI(Method)、cube_variance
+    ├── fab_ppi.py    # FABPPI(Method)
     ├── rasi.py       # RASI(ASI)
     ├── ppi.py        # PPI(Method)
     └── ppi_plus.py   # PPIPlusPlus(Method)、tuned_lambda
@@ -47,7 +50,7 @@ src/prediction_inference/
 - `dataset/judge_sim.py`：DGP 和返回 DataFrame 的 `make_judge_data`。
 - `model/learners.py`：预测模型封装；`model/judge.py`：评委均值模型。
 - `common/`：配置、通用工具（种子、输出、汇总、PPI 切分）和核心测试。
-- `examples/asi_mean.py`、`examples/bai_mean.py`、`examples/ftrl_mean.py`、`examples/ppi_mean.py`、`examples/ppi_plus_mean.py`、`examples/rasi_mean.py`：单次运行示例。
+- `examples/asi_mean.py`、`examples/bai_mean.py`、`examples/fab_ppi_mean.py`、`examples/ftrl_mean.py`、`examples/ppi_mean.py`、`examples/ppi_plus_mean.py`、`examples/rasi_mean.py`：单次运行示例。
 - `examples/simulations/`：仿真策略与重复实验入口；`online.py` 是序贯版 ASI（仅仿真使用，见下文）；`main.py` 保留兼容命令行入口。
 
 依赖方向：examples 可使用所有层；model、dataset 不依赖算法或示例；算法独立于 model、dataset、common。
@@ -55,7 +58,7 @@ src/prediction_inference/
 ## 方法接口
 
 ```python
-from prediction_inference import ASI, BAI, PPI, PPIPlusPlus, RASI, Mean
+from prediction_inference import ASI, BAI, FABPPI, PPI, PPIPlusPlus, RASI, Mean
 
 # record 是 ActiveData，balanced 是 BalancedActiveData，data 是 PPIData，robust 是 RobustActiveData。
 # result = ASI()(record, target=Mean(), alpha=.05)
@@ -63,6 +66,7 @@ from prediction_inference import ASI, BAI, PPI, PPIPlusPlus, RASI, Mean
 # result = RASI()(robust, target=Mean(), alpha=.05)
 # result = PPI()(data, target=Mean(), alpha=.05)
 # result = PPIPlusPlus()(data, target=Mean(), alpha=.05)
+# result = FABPPI()(data, target=Mean(), alpha=.05)
 ```
 
 `Method` 位于 `prediction_inference.base`，负责检查数据类型、目标类型和 alpha，再调用子类的 `_estimate(data, target)`。子类返回 `(point, se, diagnostics)`，可在 diagnostics 中放入 `values`。主类将这些值交给区间函数，并从最终诊断信息中移除 `values`。
@@ -193,6 +197,27 @@ PPIPlusPlus(lam=1)(data, target=Mean())                        # 点估计与 PP
 - **与 pppower 的差异**：pppower 的 λ̂ 与方差中 Var(f) 只用标注样本；这里按论文合并两个样本，N 远大于 n 时两者几乎相同。`lam=1` 时标准误与 `PPI` 略有不同，原因是 `PPI` 的 Var(f) 只用未标注样本。
 - **验证**：`examples/ppi_plus_mean.py` 中 λ̂ = 0.536，95% 区间宽度经典 0.0981、PPI 0.0965、PPI++ 0.0933。
 
+## FAB-PPI（对校正项加先验）
+
+实现 Cortinovis & Caron（ICML 2025）的均值版本（补充材料算法 2），参照官方代码 `stefanocortinovis/fab-ppi` 的 `ppi_fab_mean_ci`。数据与 PPI 相同，使用 `PPIData`（完整示例见 `examples/fab_ppi_mean.py`）：
+
+```python
+from prediction_inference import FABPPI, Mean
+
+result = FABPPI()(data, target=Mean(), alpha=.05)                  # FAB-PPI，马蹄先验
+result = FABPPI(lam=None)(data, target=Mean(), alpha=.05)          # FAB-PPI++，λ 同 PPIPlusPlus
+result = FABPPI(prior='gaussian')(data, target=Mean())             # 高斯先验（不稳健，仅作对照）
+result = FABPPI(imputed_uncertainty=False)(data, target=Mean())    # 论文实验口径：N ≫ n 时忽略 mean(f̃) 的不确定性
+```
+
+- **校正项**：`Δ̂ = mean(Y - λf) + (λ - 1) mean(f̃)`，`σ̂² = Var_n(Y - λf)/n + (λ-1)² Var(f̃)/N`（符号同官方，为"标签减预测"方向；先验对称，与论文的 `f - Y` 等价）。
+- **先验**：默认马蹄先验 `Δ ~ N(0, ν²σ̂²)`，`ν ~ C⁺(0, 1)`，尺度取 σ̂（论文的无参数选择）。在标准化单位 `y = Δ̂/σ̂` 下，后验均值为 `y(1 - κ(y))`，`κ = (2/3) ₁F₁(2, 5/2, -y²/2) / ₁F₁(1, 3/2, -y²/2)`；`|y| ≥ 4` 时改用等价的 Dawson 形式 `1/(√2 D(y/√2)) - 1/y` 避免数值问题。高斯先验 `N(0, σ̂²)` 的后验均值为 y/2，不一致（论文命题 4.3），仅作对照。
+- **点估计**：`mean(f̃) + σ̂ · E[Δ/σ̂ | y]`。`standard_error` 报告未收缩 PPI 估计的频率派标准误 `sqrt(σ̂² + Var(f̃)/N)`，仅供参考，区间不是 Wald 形式。
+- **区间**：`[mean(f̃) + σ̂·L - pad, mean(f̃) + σ̂·U + pad]`，其中 `[L, U]` 是 1-δ 的 FAB 区域，`pad = sqrt(Var(f̃)/N) · z_{1-(α-δ)/2}`（式 21 的 Minkowski 和）。FAB 区域由花费函数 w(β) 给出：w 使接受域两端点的 `π(y)/φ(y-β)` 相等（Neyman–Pearson），区域为 `{β : β + z_{α(1-w)} ≤ y ≤ β + z_{1-αw}}`，用嵌套 brentq 求解，每次约 2 ms。马蹄先验在 |y| 大时退回 z 区间（命题 4.2），高斯先验的宽度约按 2|y|/3 增长。
+- **δ**：`delta=None` 时与官方一致，在 (0, α) 上最小化区间宽度；也可传固定值。`imputed_uncertainty=False` 取 δ = α 并去掉 pad，对应论文第 5 节"N 足够大、忽略 m_θ 的不确定性"的实验口径，只在 N ≫ n 时适用。
+- **与官方实现的差异**：官方把 λ̂ 截断到 [0, 1]，这里与 `PPIPlusPlus` 一致不截断（论文式 14 未截断）；官方 pad 用 `Σ(λf̃ - mean f̃)²/(N-1)/N`，λ ≠ 1 时含偏差项，这里按论文算法 2 用 `Var(f̃)/N`；只实现论文主推的马蹄先验和对照的高斯先验，未实现缩放马蹄、Laplace 等需要数值积分的先验。
+- **验证**：马蹄后验均值与数值积分在 1e-6 内一致；高斯先验区间与官方闭式求根逐点一致；W ~ N(β, 1) 下 FAB 区域覆盖率约为名义值；DGP 上 200 次覆盖率合格。`examples/fab_ppi_mean.py` 中 N = 1200、n = 400，mean(f̃) 的不确定性不可忽略，完整 FAB-PPI 区间（宽 0.121）比 PPI（0.097）更宽；论文的增益来自 N ≫ n 时的 `imputed_uncertainty=False` 口径（此例为 0.079，但 N 不够大，仅作对照）。
+
 ## 稳健主动推断 RASI（两批）
 
 实现 Li, Zrnic & Candès（NeurIPS 2025）的算法 1，参照官方代码 `lphLeo/Robust-Active-Statistical-Inference`。RASI 是两批标注，第二批与 ASI 共用 `select_for_labeling` 接口（完整示例见 `examples/rasi_mean.py`）：
@@ -254,10 +279,11 @@ python -m pytest
 
 `results_asi/config.json` 记录参数；`per_rep_final.csv` 保存 300 条逐次结果；`fixed_budget_comparison.csv` 保存三种策略的汇总。
 
-测试分六个文件：
+测试分七个文件：
 
 - `common/test_core.py`：ASI 校正公式与区间函数收到的 values、`Uncertainty` 的 η 与预算下限、`tune_tau`、`LabelRequest` 只含选点信息且 `with_labels` 校验标签数量、PPI 公式与切分，以及固定预测下 200 次 DGP 覆盖率。
 - `common/test_bai.py`：cube 抽样满足平衡约束且包含概率不变、`fixed_size` 的样本量、默认与带符号平衡变量的记录、方差函数与官方 `estimate_cube_variance` 逐值一致、BAI 与 ASI 点估计一致及方差分解，以及 150 次 DGP 覆盖率。
+- `common/test_fab_ppi.py`：马蹄后验均值与数值积分一致、高斯区域与官方闭式求根一致、花费函数对称、马蹄在 0 处变短且大 y 时退回 z 区间而高斯不退回、后验均值落在区域内、W ~ N(β,1) 下区域覆盖率、方法的点估计与 `imputed_uncertainty=False` 的区间公式、FAB-PPI++ 的 λ，以及 200 次 DGP 覆盖率。
 - `common/test_ftrl.py`：查询概率与官方 `compute_pt` 循环逐值一致、从 β 单调升到 τ 且不超预算、`p_t` 不受当前行影响，以及 200 次 DGP 覆盖率。
 - `common/test_ppi_plus.py`：λ̂、点估计和标准误与手算一致，λ=0 为经典均值、λ=1 与 PPI 点估计相同，常数预测时 λ=0，调参后的标准误不大于两个基线，负相关预测时 λ̂ < 0，以及 200 次 DGP 覆盖率。
 - `common/test_rasi.py`：三条路径的端点与预算、`RobustDesign` 逐行概率复现 `budget_path`、`scores=` 不影响默认选点、分步两批写法与便捷函数一致、与官方极小极大目标逐点一致、c=0 时 ρ=0 且 c 增大时 ρ 单调趋于 1、查询只发生在选中行、RASI 与 ASI 点估计一致，以及 150 次 DGP 覆盖率。
