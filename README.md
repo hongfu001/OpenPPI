@@ -20,6 +20,7 @@ OpenPPI currently targets the mean of binary labels and implements the following
 
 | Year | Title | Venue | Code Link | Registry name |
 | ---- | ----- | ----- | --------- | -------------- |
+| 2026 | **[Calibeating Prediction-Powered Inference](https://arxiv.org/abs/2604.21260)** | Arxiv | [Link](https://github.com/Larsvanderlaan/ppi-aipw) | `CalPPI`, `LinearCalPPI` |
 | 2026 | **[Efficient Inference for Noisy LLM-as-a-Judge Evaluation](https://arxiv.org/abs/2601.05420)** | ICML'26 | [Link](https://github.com/yiqunchen/debias-llm-as-a-judge) | `RG`, `MLE` |
 | 2026 | **[Multiple-Prediction-Powered Inference](https://arxiv.org/abs/2603.27414)** | ICLR'26 | | `MultiPPI` |
 | 2026 | **[Cluster-Robust Prediction-Powered Inference](https://arxiv.org/abs/2610.09601)** | Arxiv | [Link](https://github.com/Michael-Howes/ppi_py) | `Cluster-PPI` |
@@ -43,6 +44,7 @@ OpenPPI currently targets the mean of binary labels and implements the following
 
 | Method | Sampling component | Inference component | Data |
 | ------ | ------------------ | ------------------- | ---- |
+| CalPPI / LinearCalPPI | pre-split samples | `CalibratedPPI(calibration='isotonic' / 'linear')` | `PPIData` |
 | StratPPI | `stratified_allocate` (optional budget planner) | `StratPPI()` | `StratifiedPPIData` |
 | PPI | pre-split samples | `TwoSample(lam=1.0)` | `PPIData` |
 | PPI++ | pre-split samples | `TwoSample(lam='tuned')` | `PPIData` |

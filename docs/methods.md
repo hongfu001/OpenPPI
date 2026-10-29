@@ -22,6 +22,7 @@ openppi/                     # installable core (NumPy and SciPy only)
 │   ├── misclassification.py # RoganGladen, MisclassificationMLE (hard binary judges)
 │   ├── stratified.py        # StratPPI (known population weights, within-stratum corrections)
 │   ├── adaptive.py          # PSPA (adaptive mean inference)
+│   ├── calibrated.py        # CalibratedPPI (isotonic and affine calibration, pooled mean)
 │   ├── recalibrated.py      # RePPI, BinnedMean, three_folds
 │   ├── fab.py               # FABPPI and the FAB formulas: posterior means, spending function, FAB region
 │   ├── cluster.py           # ClusterRobustPPI, cluster_moments
@@ -60,6 +61,8 @@ A method is a sampling component plus an inference component. `openppi/methods.p
 
 | Method | `sampling` | `inference` | `data_type` |
 | --- | --- | --- | --- |
+| CalPPI | `None` | `CalibratedPPI()` | `PPIData` |
+| LinearCalPPI | `None` | `CalibratedPPI(calibration='linear')` | `PPIData` |
 | StratPPI | `stratified_allocate` | `StratPPI()` | `StratifiedPPIData` |
 | PPI | `None` | `TwoSample(lam=1.0)` | `PPIData` |
 | PPI++ | `None` | `TwoSample(lam='tuned')` | `PPIData` |
@@ -485,3 +488,37 @@ All empirical variances use `ddof=1`. The common `InferenceMethod` builds the as
 **Label-free planning (eqs. 20–21).** `confidence_residual_variance(predictions, confidences, lam=1)` evaluates the binary mixture formula `mean(c*(1-c)) + var(c-lam*f, ddof=0)`, where c estimates `P(Y=1|X)`. It implements the general Example 2 formula; it does not use Appendix B's further approximation that drops lambda dependence. If c=f and lambda=1, this reduces to `mean(f*(1-f))`. Confidence misspecification can reduce allocation efficiency. Plan with independent pilot data or label-free information before collecting fresh inference samples, so reusing labels to choose the design does not invalidate fixed-design inference.
 
 **Scope and validation.** General M-estimators, continuous outcomes, learned partitions and uncertainty in estimated population weights are not implemented. `tests/test_stratified.py` checks hand-computed means/SEs for unequal population and sample weights, negative and constant prediction weights, single-stratum reduction, input validation, allocation against eq. 18 and numerical optimization, confidence mixtures, and repeated-sampling coverage under disproportionate stratified sampling. The executed `examples/simulation/stratppi.ipynb` follows the PPI format: independent training and split -> fixed strata and target -> inference -> output, with a label-free allocation example.
+
+## Calibeating prediction-powered inference (CalPPI, LinearCalPPI)
+
+Lars van der Laan & Mark van der Laan, [Calibeating Prediction-Powered Inference](https://arxiv.org/abs/2604.21260) (2026). Implements the supplied April 24, 2026 PDF's Algorithms 1–2 and Corollary 1 for binary means. The reference [ppi_aipw](https://github.com/Larsvanderlaan/ppi-aipw) was inspected at commit `9b23849970ade47aa4264ce190680ad86e416e46`; its API has evolved since the supplied PDF. No external calibration package is required by OpenPPI.
+
+```python
+from openppi import CalibratedPPI, Mean, get_method
+
+# data is ordinary PPIData, built from independently trained model predictions.
+iso = get_method('CalPPI').inference(data, target=Mean(), alpha=.05)
+linear = get_method('LinearCalPPI').inference(data, target=Mean(), alpha=.05)
+# Equivalent direct interface:
+iso = CalibratedPPI(calibration='isotonic')(data, target=Mean())
+```
+
+**Calibration.** Both variants fit only the labeled inference outcomes; the underlying black-box prediction model remains fixed and independently trained. Isotonic calibration solves least squares over nondecreasing functions of the score. A NumPy weighted pool-adjacent-violators implementation merges tied scores, fits their frequency-weighted label means, then interpolates between fitted scores and clips extrapolation to the endpoint fits, matching the reference sklearn backend. This is exact unregularized isotonic regression, rather than the paper's optional XGBoost approximation. Linear calibration fits `a+b*f` by least squares with an intercept and unrestricted slope. Linear predictions are not clipped, preserving the affine normal equations in Algorithm 2 and Appendix M.3. If all labeled scores coincide, slope zero and the labeled mean are used; constant outcomes also produce a constant calibration.
+
+**Point estimate.** Let `m_L`, `m_U` be the calibrated predictions, `M=n+N` and `rho=n/M`. The estimator is `(sum(m_L)+sum(m_U))/M`, pooling both samples. Both calibrators satisfy `mean(Y-m_L)=0`, so this also equals pooled AIPW: `mean(Y)+(1-rho)*(mean(m_U)-mean(m_L))`. It differs from directly inserting calibrated predictions into original PPI, which averages predictions over the unlabeled sample only. LinearCalPPI is first-order equivalent to unconstrained PPI++ under the paper's assumptions, but not necessarily equal in finite samples.
+
+**Standard error.** By default `variance='paper'` follows Algorithms 1–2 and Corollary 1:
+
+```text
+D_L = m_L - theta + (Y-m_L)/rho
+D_U = m_U - theta
+SE² = [sum(D_L²)+sum(D_U²)] / M².
+```
+
+The shared `InferenceMethod` constructs the untransformed Wald interval and supports an `interval=` callback. Its `values` include calibrated predictions, residuals and both influence arrays. Diagnostics report calibration parameters (isotonic knots/fitted values or affine intercept/slope), sample counts, labeled fraction, residual mean and variance convention. No clipping of the point estimate or interval is applied.
+
+**Reference-package differences.** `variance='two_sample'` centers influence values within each sample and uses `ddof=0`: `SE²=[n*Var(D_L)+N*Var(D_U)]/M²`, matching the current official API's Wald calculation with optional efficiency scaling disabled. The paper's Appendix M instead uses centered `ddof=1` variances, so finite-sample SEs differ among those conventions, although first-order limits agree under regularity. The current official API also clips affine predictions to the observed outcome range and uses an AIPW residual correction; this can differ from the supplied paper when affine predictions extrapolate beyond that range. OpenPPI follows the paper's unclipped affine plug-in. The official constant-score rank-deficient linear solver can also choose an arbitrary nonzero slope; OpenPPI explicitly uses a constant fit. The reference-package fixtures avoid affine clipping and include constant scores with identical labeled/unlabeled values, for which both constant-score conventions agree. A separate test verifies the clipping discrepancy. These defaults should not be described as exact reproduction of every current official API setting.
+
+**Assumptions and scope.** Both inference samples must be independent iid draws from the same population, with labels observed completely at random and the same fixed score applied to both. Calibration deliberately reuses labeled outcomes, as allowed by the paper's stable low-complexity calibrators under its regularity assumptions; arbitrary overfitting learners cannot be substituted with the same guarantee. The strongest isotonic efficiency statements require the stated monotonicity/projection conditions. Small samples and heavily stepped fits can have imperfect Wald coverage. This implementation supports binary means through `PPIData`; it does not implement continuous labels, extra covariates (Algorithm 3), bootstrap/jackknife, cross-fitting, AutoCal, splines, or XGBoost calibration. RePPI remains a separate three-fold recalibration method with a different estimator and variance design.
+
+**Validation.** `tests/test_calibrated.py` checks six numerical fixtures (three datasets, two calibrators) from the pinned official package, hand-computed paper influence functions and intervals, tied-score PAVA against sklearn, constant scores/outcomes, negative affine slopes, unclipped extrapolation and repeated-sampling coverage under nonlinear miscalibration. `tests/fixtures/generate_calibrated.py` regenerates the reference outputs in `calibrated.json`. The executed `examples/simulation/calibrated_ppi.ipynb` follows the PPI training/split -> target -> inference -> output format and shows both calibration variants.

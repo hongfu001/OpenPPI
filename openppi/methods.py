@@ -10,7 +10,7 @@ from functools import partial
 
 from .common.data import (ActiveData, BalancedActiveData, ClusteredPPIData, MultiPPIData,
                           PPIData, StratifiedPPIData)
-from .inference import (BAI, IPW, ClusterRobustPPI, FABPPI, MisclassificationMLE, MultiPPI,
+from .inference import (BAI, IPW, CalibratedPPI, ClusterRobustPPI, FABPPI, MisclassificationMLE, MultiPPI,
                         PSPA, RePPI, RoganGladen, StratPPI, TwoSample)
 from .sampling import (BalancedDesign, FTRLDesign, RobustDesign, Uncertainty, multi_allocate,
                        stratified_allocate)
@@ -34,6 +34,10 @@ METHODS = {recipe.name: recipe for recipe in (
            'Rogan & Gladen 1978; Chen, Lu, Li, Guo & Li, ICML 2026'),
     Recipe('MLE', None, MisclassificationMLE(), PPIData,
            'Chen, Lu, Li, Guo & Li, Efficient Inference for Noisy LLM-as-a-Judge Evaluation, ICML 2026'),
+    Recipe('CalPPI', None, CalibratedPPI(), PPIData,
+           'Lars van der Laan & Mark van der Laan, Calibeating Prediction-Powered Inference, arXiv:2604.21260, 2026'),
+    Recipe('LinearCalPPI', None, CalibratedPPI(calibration='linear'), PPIData,
+           'Lars van der Laan & Mark van der Laan, Calibeating Prediction-Powered Inference, arXiv:2604.21260, 2026'),
     Recipe('StratPPI', stratified_allocate, StratPPI(), StratifiedPPIData,
            'Fisch, Maynez, Hofer, Dhingra, Globerson & Cohen, NeurIPS 2024'),
     Recipe('PSPA', None, PSPA(), PPIData,

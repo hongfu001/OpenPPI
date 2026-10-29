@@ -5,7 +5,7 @@ records the published combinations (get_method('ASI'), METHODS).
 """
 from .common import (ActiveData, BalancedActiveData, ClusteredPPIData, InferenceResult, Mean, MultiPPIData,
                      PPIData, StratifiedPPIData, Target, split)
-from .inference import (BAI, IPW, BinnedMean, ClusterRobustPPI, FABPPI, InferenceMethod,
+from .inference import (BAI, IPW, BinnedMean, CalibratedPPI, ClusterRobustPPI, FABPPI, InferenceMethod,
                         MisclassificationMLE, MultiPPI, PSPA, RePPI, RoganGladen, StratPPI, TwoSample)
 from .methods import METHODS, Recipe, get_method
 from .sampling import (Allocation, BalancedDesign, BurnIn, FTRLDesign, LabelRequest, RobustDesign,
@@ -23,7 +23,7 @@ __all__ = [
     'StratifiedAllocation', 'stratified_allocate', 'confidence_residual_variance',
     # inference components
     'InferenceMethod', 'IPW', 'TwoSample', 'RePPI', 'BinnedMean', 'FABPPI', 'ClusterRobustPPI',
-    'MultiPPI', 'BAI', 'StratPPI', 'RoganGladen', 'MisclassificationMLE', 'PSPA',
+    'CalibratedPPI', 'MultiPPI', 'BAI', 'StratPPI', 'RoganGladen', 'MisclassificationMLE', 'PSPA',
     # method registry
     'METHODS', 'Recipe', 'get_method',
 ]

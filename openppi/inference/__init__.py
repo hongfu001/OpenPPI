@@ -2,6 +2,7 @@
 from .adaptive import PSPA
 from .base import InferenceMethod
 from .balanced import BAI
+from .calibrated import CalibratedPPI
 from .cluster import ClusterRobustPPI
 from .fab import FABPPI
 from .ipw import IPW
@@ -12,4 +13,4 @@ from .stratified import StratPPI
 from .two_sample import TwoSample
 
 __all__ = ['InferenceMethod', 'BAI', 'ClusterRobustPPI', 'FABPPI', 'IPW', 'MultiPPI', 'BinnedMean', 'RePPI',
-           'StratPPI', 'TwoSample', 'PSPA', 'RoganGladen', 'MisclassificationMLE']
+           'CalibratedPPI', 'StratPPI', 'TwoSample', 'PSPA', 'RoganGladen', 'MisclassificationMLE']
