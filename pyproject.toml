@@ -3,19 +3,20 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "prediction-inference"
+name = "openppi"
 version = "0.1.0"
-description = "Composable sampling, mean estimation, and terminal inference"
+description = "OpenPPI: an open-source framework for prediction-powered inference"
 requires-python = ">=3.10"
 dependencies = ["numpy", "scipy"]
 
 [project.optional-dependencies]
-simulation = ["pandas", "scikit-learn"]
+simulation = ["pandas", "scikit-learn", "matplotlib"]
 test = ["pytest", "pandas", "scikit-learn"]
 
 [tool.setuptools.packages.find]
-where = ["src"]
+include = ["openppi*"]
 
 [tool.pytest.ini_options]
-pythonpath = ["src", "."]
-testpaths = ["common"]
+pythonpath = [".", "examples/simulation"]
+testpaths = ["tests"]
+markers = ["slow: repeated-sampling coverage checks (deselect with -m \"not slow\")"]
