@@ -1,5 +1,5 @@
 """Validated snapshots of the information available at query time."""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import numpy as np
 
 
@@ -10,11 +10,14 @@ class ActiveData:
     Predictions and propensities must be chosen before seeing each label,
     using only available covariates and past observations. Arrays are copied
     and made read-only so later model updates cannot overwrite this record.
+    design_info records parameters of the sampling design (e.g. the burn-in
+    size and robust rho of RASI); inference copies it into the diagnostics.
     """
     predictions: np.ndarray
     observed_labels: np.ndarray
     queried: np.ndarray
     propensities: np.ndarray
+    design_info: dict = field(default_factory=dict)
 
     def __post_init__(self):
         for name in ('predictions', 'observed_labels', 'queried', 'propensities'):
@@ -36,6 +39,9 @@ class ActiveData:
             raise ValueError('Queried labels must be finite')
         if not np.isnan(self.observed_labels[~self.queried]).all():
             raise ValueError('Unqueried labels must be NaN')
+        if not isinstance(self.design_info, dict):
+            raise TypeError('design_info must be a dict')
+        object.__setattr__(self, 'design_info', dict(self.design_info))
 
 
 @dataclass(frozen=True)
@@ -163,35 +169,6 @@ def split(features, labels, *, train_size, labeled_size, random_state=None):
     labeled = indices[train_size:train_size + labeled_size]
     unlabeled = indices[train_size + labeled_size:]
     return (x[train], y[train]), (x[labeled], y[labeled]), x[unlabeled]
-
-ROBUST_PATHS = ('linear', 'geometric', 'hellinger')
-
-
-@dataclass(frozen=True)
-class RobustActiveData(ActiveData):
-    """ActiveData from a burn-in batch plus a robust second batch.
-
-    burn_in marks uniformly chosen rows labeled with probability 1 before
-    the error model was fit; they count toward the labeling budget.
-    rho_robust, constraint and path describe the second-batch design.
-    """
-    burn_in: np.ndarray = None
-    rho_robust: float = np.nan
-    constraint: float = np.nan
-    path: str = 'geometric'
-
-    def __post_init__(self):
-        super().__post_init__()
-        burn_in = np.array(self.burn_in, dtype=bool, copy=True)
-        if burn_in.shape != self.queried.shape:
-            raise ValueError('burn_in must align with the other arrays')
-        if not (self.queried[burn_in].all() and (self.propensities[burn_in] == 1).all()):
-            raise ValueError('Burn-in rows must be queried with propensity 1')
-        if self.path not in ROBUST_PATHS:
-            raise ValueError(f'path must be one of {ROBUST_PATHS}')
-        burn_in.setflags(write=False)
-        object.__setattr__(self, 'burn_in', burn_in)
-
 
 @dataclass(frozen=True)
 class BalancedActiveData(ActiveData):

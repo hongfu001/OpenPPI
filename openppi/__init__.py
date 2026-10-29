@@ -1,23 +1,25 @@
-"""OpenPPI: an open-source framework for prediction-powered inference."""
+"""OpenPPI: an open-source framework for prediction-powered inference.
+
+A method is a sampling component plus an inference component; openppi.methods
+records the published combinations (get_method('ASI'), METHODS).
+"""
 from .common import (ActiveData, BalancedActiveData, ClusteredPPIData, InferenceResult, Mean, MultiPPIData,
-                     PPIData, RobustActiveData, Target, split)
-from .inference import (ASI, BAI, BinnedMean, ClusterRobustPPI, FABPPI, InferenceMethod, MultiPPI, PPI,
-                        PPIPlusPlus, RASI, RePPI)
+                     PPIData, Target, split)
+from .inference import (BAI, IPW, BinnedMean, ClusterRobustPPI, FABPPI, InferenceMethod, MultiPPI, RePPI,
+                        TwoSample)
+from .methods import METHODS, Recipe, get_method
 from .sampling import (Allocation, BalancedDesign, BurnIn, FTRLDesign, LabelRequest, RobustDesign,
-                       SamplingDesign, Uncertainty, Uniform, active_rule, budget_path, cube_sample,
-                       multi_allocate, robust_active_label, robust_rho, select_burn_in, select_constraint,
-                       select_for_labeling, tune_tau)
+                       SamplingDesign, Uncertainty, Uniform, multi_allocate, select_for_labeling, tune_tau)
 
 __all__ = [
     # data, targets and results
-    'ActiveData', 'BalancedActiveData', 'ClusteredPPIData', 'MultiPPIData', 'PPIData', 'RobustActiveData',
-    'split', 'Mean', 'Target', 'InferenceResult',
-    # inference
-    'InferenceMethod', 'ASI', 'BAI', 'ClusterRobustPPI', 'FABPPI', 'MultiPPI', 'PPI', 'PPIPlusPlus', 'RASI',
-    'RePPI', 'BinnedMean',
-    # sampling
+    'ActiveData', 'BalancedActiveData', 'ClusteredPPIData', 'MultiPPIData', 'PPIData', 'split', 'Mean', 'Target',
+    'InferenceResult',
+    # sampling components
     'SamplingDesign', 'LabelRequest', 'select_for_labeling', 'Uniform', 'Uncertainty', 'tune_tau',
-    'BalancedDesign', 'cube_sample', 'FTRLDesign', 'RobustDesign', 'BurnIn', 'select_burn_in',
-    'robust_active_label', 'select_constraint', 'robust_rho', 'budget_path', 'active_rule',
-    'Allocation', 'multi_allocate',
+    'BalancedDesign', 'FTRLDesign', 'RobustDesign', 'BurnIn', 'Allocation', 'multi_allocate',
+    # inference components
+    'InferenceMethod', 'IPW', 'TwoSample', 'RePPI', 'BinnedMean', 'FABPPI', 'ClusterRobustPPI', 'MultiPPI', 'BAI',
+    # method registry
+    'METHODS', 'Recipe', 'get_method',
 ]

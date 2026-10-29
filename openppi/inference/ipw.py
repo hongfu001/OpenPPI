@@ -1,13 +1,19 @@
-"""Active IPW correction with a configurable interval function."""
+"""Inverse-propensity-weighted correction for actively labeled records (ASI, RASI, FTRL)."""
 import numpy as np
 from .base import InferenceMethod
 from ..common.data import ActiveData
 from ..common.stats import ipw_correct
 
 
-class ASI(InferenceMethod):
-    """Binary mean inference from predictable Bernoulli queries."""
-    name = 'ASI'
+class IPW(InferenceMethod):
+    """Binary mean inference from predictable Bernoulli queries.
+
+    The corrected values are f + R/pi (Y - f); the estimate is their mean
+    and the SE their standard deviation over sqrt(n). Rows labeled with
+    probability 1 (a RASI burn-in) contribute their label. The record's
+    design_info is copied into the diagnostics.
+    """
+    name = 'IPW'
     data_type = ActiveData
 
     def _estimate(self, data, target):
@@ -15,7 +21,7 @@ class ASI(InferenceMethod):
                              data.queried, data.propensities)
         point = float(values.mean())
         se = float(values.std(ddof=1) / np.sqrt(len(values)))
-        return point, se, {
+        diagnostics = {
             'values': values,
             'audits': int(data.queried.sum()),
             'sum_sampling_probabilities': float(data.propensities.sum()),
@@ -25,3 +31,5 @@ class ASI(InferenceMethod):
             'weight_strategy': 'fixed',
             'variance_design': 'active_terminal_plugin',
         }
+        diagnostics.update(data.design_info)
+        return point, se, diagnostics

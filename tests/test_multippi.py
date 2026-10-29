@@ -6,7 +6,7 @@ import pytest
 from scipy.optimize import minimize
 from sklearn.covariance import ledoit_wolf as sklearn_ledoit_wolf
 
-from openppi import MultiPPI, MultiPPIData, PPIPlusPlus, Mean, PPIData, multi_allocate
+from openppi import MultiPPI, MultiPPIData, Mean, PPIData, TwoSample, multi_allocate
 from openppi.common.stats import ledoit_wolf, multi_weights
 from dataset.judge_sim import make_multi_rater_data
 
@@ -72,7 +72,7 @@ def test_label_and_one_rater_is_ppi_plus_plus():
     sigma = np.array([[1., np.cov(labeled.T)[0, 1]], [np.cov(labeled.T)[0, 1], pooled.var(ddof=1)]])
     data = MultiPPIData({(0, 1): labeled, (1,): unlabeled})
     multi = MultiPPI(covariance=sigma)(data, target=Mean())
-    ppi = PPIPlusPlus()(PPIData(labeled[:, 0], labeled[:, 1], unlabeled), target=Mean())
+    ppi = TwoSample(lam='tuned')(PPIData(labeled[:, 0], labeled[:, 1], unlabeled), target=Mean())
     assert multi.estimate == pytest.approx(ppi.estimate)
     assert multi.diagnostics['weights'][(1,)][0] == pytest.approx(ppi.diagnostics['prediction_weight'])
 

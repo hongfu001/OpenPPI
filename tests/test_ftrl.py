@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from openppi import ASI, FTRLDesign, Mean, select_for_labeling
+from openppi import IPW, FTRLDesign, Mean, select_for_labeling
 from config import Config
 from utils import rng_for
 from dataset.judge_sim import DGP
@@ -50,6 +50,6 @@ def test_ftrl_interval_coverage():
         request = select_for_labeling(f, target=Mean(), design=FTRLDesign(), scores=f * (1 - f),
                                       budget=config.rho * config.n, random_state=rng_for(config.seed, rep, 2))
         record = request.with_labels(data['y'][request.indices])
-        low, high = ASI()(record, target=Mean(), alpha=config.alpha).confidence_interval
+        low, high = IPW()(record, target=Mean(), alpha=config.alpha).confidence_interval
         covered += low <= truth <= high
     assert .90 < covered / config.reps <= 1.0, f'coverage={covered / config.reps:.3f}'

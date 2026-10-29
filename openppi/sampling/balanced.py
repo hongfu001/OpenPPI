@@ -10,7 +10,7 @@ this module is a pure NumPy cube method with flight and landing phases.
 import numpy as np
 
 from ..common.data import BalancedActiveData
-from .asi import Uncertainty
+from .uncertainty import Uncertainty
 
 _EPS = 1e-10
 

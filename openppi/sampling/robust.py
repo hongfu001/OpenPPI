@@ -11,17 +11,17 @@ uniform sampling to the point minimizing
         = mean(e^2 / pi) + c * sqrt(mean(1 / pi^2)),
 
 the objective of the reference MinMaxOptimizer_l2. BurnIn.combine merges
-both batches into RobustActiveData; burn-in rows carry propensity 1, so
-the ASI correction reproduces the reference concatenated estimator.
+both batches into ActiveData with the design recorded in design_info;
+burn-in rows carry propensity 1, so the IPW correction reproduces the
+reference concatenated estimator.
 """
 from dataclasses import dataclass
 import numpy as np
 
-from ..common.data import ROBUST_PATHS, RobustActiveData
-from ..common.targets import Mean
-from .base import LabelRequest, SamplingDesign, select_for_labeling, validate_calibration
+from ..common.data import ActiveData
+from .base import LabelRequest, SamplingDesign, validate_calibration
 
-PATHS = ROBUST_PATHS
+PATHS = ('linear', 'geometric', 'hellinger')
 DEFAULT_CONSTRAINTS = (0., .01, .02, .03, .04, .05, .06, .07, .1)
 
 
@@ -234,7 +234,7 @@ class BurnIn:
             raise ValueError('indices and remaining must partition range(n)')
 
     def combine(self, predictions, labels, request, request_labels):
-        """Merge both batches into RobustActiveData over all n rows.
+        """Merge both batches into ActiveData over all n rows.
 
         labels align with indices; request is the second batch's
         LabelRequest over remaining rows and request_labels align with
@@ -257,12 +257,10 @@ class BurnIn:
         observed[self.remaining] = second.observed_labels
         queried[self.remaining] = second.queried
         propensities[self.remaining] = second.propensities
-        burn_in = np.zeros(self.n, dtype=bool)
-        burn_in[self.indices] = True
         design = request.design
-        return RobustActiveData(p, observed, queried, propensities, burn_in=burn_in,
-                                rho_robust=design.rho_robust, constraint=design.constraint,
-                                path=design.path)
+        return ActiveData(p, observed, queried, propensities, design_info={
+            'variance_design': 'robust_active_terminal_plugin', 'burn_in': len(self.indices),
+            'rho_robust': design.rho_robust, 'constraint': design.constraint, 'path': design.path})
 
 
 def select_burn_in(n, *, size, random_state=None):
@@ -271,52 +269,3 @@ def select_burn_in(n, *, size, random_state=None):
         raise ValueError('Require integers with 2 <= size < n')
     order = np.random.default_rng(random_state).permutation(n)
     return BurnIn(int(n), np.sort(order[:size]), np.sort(order[size:]))
-
-
-def robust_active_label(features, *, oracle, target, budget, model, error_model_factory,
-                        burn_in, constraint=None, candidates=DEFAULT_CONSTRAINTS, folds=5,
-                        path='geometric', grid=101, random_state=None):
-    """Run both batches with an oracle; returns RobustActiveData.
-
-    Convenience wrapper for simulations: select_burn_in -> label ->
-    RobustDesign.fit -> select_for_labeling on remaining rows -> label ->
-    BurnIn.combine. model is a fixed predictor exposing predict(X) ->
-    probabilities; burn_in labels count toward budget, an expected total.
-    """
-    if not isinstance(target, Mean):
-        raise TypeError('Only the binary Mean target is currently supported')
-    x = np.array(features, dtype=float, copy=True)
-    if x.ndim != 2 or len(x) < 2 or not np.isfinite(x).all():
-        raise ValueError('Require a finite feature matrix with n >= 2')
-    if not callable(oracle):
-        raise TypeError('oracle must be callable')
-    if not callable(getattr(model, 'predict', None)):
-        raise TypeError('model must expose predict(X)')
-    if not isinstance(burn_in, int) or not 2 <= burn_in < budget < len(x):
-        raise ValueError('Require integers with 2 <= burn_in < budget < n')
-    predictions = np.asarray(model.predict(x), dtype=float)
-    if predictions.shape != (len(x),) or not ((predictions >= 0) & (predictions <= 1)).all():
-        raise ValueError('Model must predict one probability in [0, 1] per row')
-
-    def ask(rows):
-        labels = np.array([float(oracle(int(i))) for i in rows])
-        if not np.isfinite(labels).all() or not np.isin(labels, [0., 1.]).all():
-            raise ValueError('Mean active labeling currently requires binary oracle labels')
-        return labels
-
-    rng = np.random.default_rng(random_state)
-    burn = select_burn_in(len(x), size=burn_in, random_state=rng)
-    labels = ask(burn.indices)
-    rest = burn.remaining
-    second_budget = budget - burn_in
-    if not 0 < second_budget < len(rest):
-        raise ValueError('Budget after burn-in must give a sampling rate in (0, 1)')
-    design = RobustDesign.fit(
-        x[burn.indices], labels, predictions[burn.indices],
-        error_model_factory=error_model_factory, rho=second_budget / len(rest),
-        constraint=constraint, candidates=candidates, folds=folds, path=path, grid=grid,
-        random_state=None if constraint is not None else rng.integers(2**32))
-    request = select_for_labeling(predictions[rest], target=target, design=design,
-                                  budget=second_budget, scores=design.errors(x[rest]),
-                                  random_state=rng)
-    return burn.combine(predictions, labels, request, ask(rest[request.indices]))

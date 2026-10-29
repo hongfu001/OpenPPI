@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from openppi import ClusterRobustPPI, ClusteredPPIData, PPIPlusPlus, Mean, PPIData
+from openppi import ClusterRobustPPI, ClusteredPPIData, Mean, PPIData, TwoSample
 from dataset.judge_sim import make_clustered_data
 
 
@@ -44,7 +44,7 @@ def test_singleton_clusters_recover_ppi_plus_plus():
     f = np.clip(.4 * y + .3 + rng.normal(0, .1, 20000), 0, 1)
     xi = rng.random(20000) < .2
     clustered = ClusterRobustPPI()(ClusteredPPIData(np.where(xi, y, np.nan), f, xi, np.arange(20000)), target=Mean())
-    iid = PPIPlusPlus()(PPIData(y[xi], f[xi], f[~xi]), target=Mean())
+    iid = TwoSample(lam='tuned')(PPIData(y[xi], f[xi], f[~xi]), target=Mean())
     assert clustered.estimate == pytest.approx(iid.estimate, abs=1e-4)
     assert clustered.standard_error == pytest.approx(iid.standard_error, rel=.01)
     assert clustered.diagnostics['prediction_weight'] == pytest.approx(iid.diagnostics['prediction_weight'], rel=.02)
@@ -75,7 +75,7 @@ def test_cluster_robust_coverage_and_iid_undercoverage(whole_clusters):
         low, high = ClusterRobustPPI()(record(frame, xi), target=Mean()).confidence_interval
         covered += low <= .5 <= high
         f, y = frame['prediction'].to_numpy(), frame['label'].to_numpy()
-        low, high = PPIPlusPlus()(PPIData(y[xi], f[xi], f[~xi]), target=Mean()).confidence_interval
+        low, high = TwoSample(lam='tuned')(PPIData(y[xi], f[xi], f[~xi]), target=Mean()).confidence_interval
         covered_iid += low <= .5 <= high
     assert .90 < covered / reps <= 1.0, f'coverage={covered / reps:.3f}'
     assert covered_iid / reps < .85

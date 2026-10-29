@@ -17,7 +17,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from openppi import ASI, Mean, tune_tau
+from openppi import Mean, get_method, tune_tau
 from config import add_config_arguments, config_from_args
 from dataset.judge_sim import DGP
 from model.judge import JudgeModel
@@ -76,9 +76,10 @@ def sample_asi(c, rep, policy, data, ref):
 
 def run_asi(c, rep, policy, data, ref, truth):
     sample, tau = sample_asi(c, rep, policy, data, ref)
-    result = ASI()(sample, target=Mean(), alpha=c.alpha)
+    recipe = get_method('ASI')          # the sequential designs above replace its batch sampling
+    result = recipe.inference(sample, target=Mean(), alpha=c.alpha)
     low, high = result.confidence_interval
-    return dict(pretrain_labels=c.pretrain_size if policy == 'asi_pretrained' else 0, rep=rep, policy=policy, method=result.method, t=c.n, tau=tau,
+    return dict(pretrain_labels=c.pretrain_size if policy == 'asi_pretrained' else 0, rep=rep, policy=policy, method=recipe.name, t=c.n, tau=tau,
                 estimate=result.estimate, standard_error=result.standard_error,
                 low=low, high=high, width=high-low, truth=truth,
                 covered=bool(low <= truth <= high), sq_error=(result.estimate-truth)**2,

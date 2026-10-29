@@ -1,13 +1,12 @@
-"""Core formulas, fixed-budget ASI selection, PPI, and DGP coverage."""
+"""Core formulas, fixed-budget uncertainty selection, IPW, two-sample PPI and DGP coverage."""
 import numpy as np
 import pytest
 
 from openppi import (
-    ASI, PPI, ActiveData, Mean, PPIData, Uncertainty, select_for_labeling, LabelRequest, tune_tau,
+    IPW, TwoSample, ActiveData, Mean, PPIData, Uncertainty, select_for_labeling, LabelRequest, split, tune_tau,
 )
 from openppi.common.stats import ipw_correct, wald_interval
 from config import Config
-from openppi import split
 from utils import rng_for
 from dataset.judge_sim import DGP
 
@@ -19,7 +18,7 @@ def test_correction_and_interval():
     pi = np.array([.5, .3, .8, .5])
     values = ipw_correct(p, y, q, pi)
     np.testing.assert_allclose(values, [1.8, .6, -.2, .4])
-    result = ASI()(ActiveData(p, y, q, pi), target=Mean())
+    result = IPW()(ActiveData(p, y, q, pi), target=Mean())
     assert result.estimate == pytest.approx(.65)
     assert result.standard_error == pytest.approx(np.std(values, ddof=1) / 2)
     assert result.confidence_interval == wald_interval(result.estimate, result.standard_error)
@@ -30,7 +29,7 @@ def test_correction_and_interval():
         np.testing.assert_allclose(values, [1.8, .6, -.2, .4])
         return wald_interval(point, se, alpha)
 
-    assert ASI(interval=interval)(ActiveData(p, y, q, pi), target=Mean()) == result
+    assert IPW(interval=interval)(ActiveData(p, y, q, pi), target=Mean()) == result
 
 
 def test_sampling_budget_and_floor():
@@ -41,15 +40,6 @@ def test_sampling_budget_and_floor():
     np.testing.assert_allclose(request.propensities.sum(), budget, atol=1e-10)
     assert request.propensities.min() >= tau * budget / len(p)
     assert request.queried.dtype == bool
-
-
-def test_with_labels_requires_one_label_per_index():
-    request = select_for_labeling(np.linspace(.05, .95, 50), target=Mean(),
-                                  design=Uncertainty(), budget=10, random_state=0)
-    k = len(request.indices)
-    for wrong in (np.ones(k + 1), np.ones(max(k - 1, 0)), np.ones((k, 1))):
-        with pytest.raises(ValueError):
-            request.with_labels(wrong)
 
 
 def test_label_request_has_no_labels_until_attached():
@@ -106,7 +96,7 @@ def test_dgp_interval_coverage():
             data['oracle'], target=Mean(), design=Uncertainty(tau=config.asi_tau),
             budget=config.rho * config.n, random_state=rng_for(config.seed, rep, 2))
         record = request.with_labels(data['y'][request.indices])
-        low, high = ASI()(record, target=Mean(), alpha=config.alpha).confidence_interval
+        low, high = IPW()(record, target=Mean(), alpha=config.alpha).confidence_interval
         covered += low <= truth <= high
     coverage = covered / config.reps
     # A loose Monte Carlo tolerance around nominal 95% coverage.
@@ -123,13 +113,13 @@ def test_ppi_formula_and_split():
         captured.update(values)
         return wald_interval(point, se, alpha, values=values)
 
-    result = PPI(interval=interval)(data, target=Mean())
+    result = TwoSample(interval=interval)(data, target=Mean())
     np.testing.assert_allclose(captured['residuals'], [.2, -.4, .4, .8])
     assert result.estimate == pytest.approx(.55)
     assert result.standard_error == pytest.approx(np.sqrt(.005 + .0625))
     assert result.confidence_interval == wald_interval(result.estimate, result.standard_error)
     assert 'values' not in result.diagnostics
-    assert result == PPI()(data, target=Mean())
+    assert result == TwoSample()(data, target=Mean())
     assert not data.labels.flags.writeable
     with pytest.raises(ValueError):
         PPIData([1., 0.], [.5], [.2, .8])

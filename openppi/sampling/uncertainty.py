@@ -1,4 +1,4 @@
-"""ASI sampling (Zrnic and Candes, 2024): uncertainty-proportional rule mixed with uniform."""
+"""Uncertainty sampling (Zrnic and Candes, 2024): uncertainty-proportional rule mixed with uniform."""
 import numpy as np
 
 from ..common.targets import Mean

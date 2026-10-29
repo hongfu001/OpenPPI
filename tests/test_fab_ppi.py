@@ -5,8 +5,8 @@ from scipy import integrate, stats
 from scipy.optimize import brentq
 from scipy.special import ndtri
 
-from openppi import FABPPI, PPIPlusPlus, Mean, PPIData
-from openppi.inference.fab_ppi import fab_region, posterior_mean, spending
+from openppi import FABPPI, Mean, PPIData, TwoSample
+from openppi.inference.fab import fab_region, posterior_mean, spending
 from config import Config
 from utils import rng_for
 from dataset.judge_sim import DGP
@@ -77,7 +77,7 @@ def test_method_estimate_and_limits():
     tuned = FABPPI(lam=None)(data, target=Mean(), alpha=.1)
     assert tuned.method == 'FAB-PPI++'
     assert tuned.diagnostics['prediction_weight'] == pytest.approx(
-        PPIPlusPlus()(data, target=Mean()).diagnostics['prediction_weight'])
+        TwoSample(lam='tuned')(data, target=Mean()).diagnostics['prediction_weight'])
     with pytest.raises(ValueError):
         FABPPI(prior='laplace')
     with pytest.raises(ValueError):

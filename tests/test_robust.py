@@ -1,14 +1,10 @@
-"""Robust active sampling: paths, minimax objective, labeling flow, coverage."""
+"""Robust (RASI) sampling: paths, minimax objective, two-batch flow, coverage."""
 import numpy as np
 import pytest
 from sklearn.tree import DecisionTreeRegressor
 
-from openppi import (
-    ASI, RASI, BurnIn, Mean, RobustActiveData, RobustDesign, Uncertainty, active_rule,
-    budget_path, robust_active_label, robust_rho, select_burn_in, select_constraint,
-    select_for_labeling,
-)
-from openppi.sampling.rasi import robust_objective
+from openppi import IPW, Mean, RobustDesign, Uncertainty, select_for_labeling
+from openppi.sampling.robust import active_rule, budget_path, robust_objective, robust_rho, select_burn_in
 from config import Config
 from utils import rng_for
 from dataset.judge_sim import DGP
@@ -52,47 +48,54 @@ def test_rho_is_active_without_constraint_and_uniform_with_large_one():
     assert path == sorted(path) and path[-1] == 1.
 
 
-def test_select_constraint_returns_a_candidate():
-    rng = np.random.default_rng(2)
-    x = rng.normal(size=(200, 2))
-    p = np.clip(.5 + .2 * x[:, 0], .01, .99)
-    y = rng.binomial(1, p).astype(float)
-    c = select_constraint(x, y, p, error_model_factory=lambda: DecisionTreeRegressor(max_depth=2),
-                          rho=.2, candidates=(0., .05, .5), random_state=0)
-    assert c in (0., .05, .5)
-
-
 class Fixed:
     def predict(self, x):
         return x[:, 0]
 
 
-def test_flow_queries_only_selected_rows_and_reuses_asi_formula():
+def two_batches(x, oracle, predictions, *, budget, burn_in, error_model_factory, constraint, random_state):
+    """Burn-in batch, RobustDesign fit, robust batch, combine: the RASI flow of rasi.ipynb."""
+    rng = np.random.default_rng(random_state)
+    burn = select_burn_in(len(x), size=burn_in, random_state=rng)
+    labels = np.array([oracle(int(i)) for i in burn.indices], dtype=float)
+    rest = burn.remaining
+    design = RobustDesign.fit(x[burn.indices], labels, predictions[burn.indices],
+                              error_model_factory=error_model_factory, rho=(budget - burn_in) / len(rest),
+                              constraint=constraint)
+    request = select_for_labeling(predictions[rest], target=Mean(), design=design, budget=budget - burn_in,
+                                  scores=design.errors(x[rest]), random_state=rng)
+    second = np.array([oracle(int(i)) for i in rest[request.indices]], dtype=float)
+    return burn, burn.combine(predictions, labels, request, second)
+
+
+def test_flow_queries_only_selected_rows_and_records_the_design():
     rng = np.random.default_rng(3)
     x = np.column_stack([rng.uniform(.05, .95, 500), rng.normal(size=500)])
     y = rng.binomial(1, x[:, 0]).astype(float)
+    p = Fixed().predict(x)
     calls = []
 
     def oracle(i):
         calls.append(i)
         return y[i]
 
-    record = robust_active_label(
-        x, oracle=oracle, target=Mean(), budget=120, model=Fixed(),
-        error_model_factory=lambda: DecisionTreeRegressor(max_depth=2),
-        burn_in=40, constraint=.05, random_state=4)
-    assert isinstance(record, RobustActiveData)
+    burn, record = two_batches(x, oracle, p, budget=120, burn_in=40,
+                               error_model_factory=lambda: DecisionTreeRegressor(max_depth=2),
+                               constraint=.05, random_state=4)
     assert sorted(calls) == np.flatnonzero(record.queried).tolist() and len(set(calls)) == len(calls)
-    assert record.burn_in.sum() == 40 and record.queried[record.burn_in].all()
-    np.testing.assert_array_equal(record.propensities[record.burn_in], 1.)
+    assert record.queried[burn.indices].all()
+    np.testing.assert_array_equal(record.propensities[burn.indices], 1.)
     assert record.propensities.sum() <= 120 + 1e-9
-    result = RASI()(record, target=Mean())
-    assert result.estimate == ASI()(record, target=Mean()).estimate
+    result = IPW()(record, target=Mean())
     assert result.diagnostics['burn_in'] == 40 and result.diagnostics['constraint'] == .05
-    # Burn-in values are the labels themselves, as in the reference concatenation.
-    with pytest.raises(TypeError):
-        RASI()(ASI.data_type(record.predictions, record.observed_labels,
-                             record.queried, record.propensities), target=Mean())
+    assert result.diagnostics['variance_design'] == 'robust_active_terminal_plugin'
+    # Burn-in rows have propensity 1, so their IPW value is the label: the reference concatenation.
+    corrected = p + record.queried / record.propensities * (np.nan_to_num(record.observed_labels) - p)
+    assert result.estimate == pytest.approx(corrected.mean())
+    np.testing.assert_array_equal(corrected[burn.indices], y[burn.indices])
+    with pytest.raises(TypeError):  # a non-robust second batch cannot be combined
+        burn.combine(p, y[burn.indices], select_for_labeling(
+            p[burn.remaining], target=Mean(), design=Uncertainty(), budget=70, random_state=0), [])
 
 
 class Errors:
@@ -126,36 +129,6 @@ def test_scores_override_leaves_default_selection_unchanged():
         select_for_labeling(p, target=Mean(), design=Uncertainty(), budget=20, scores=-np.ones(80))
 
 
-def test_two_batch_flow_matches_convenience_wrapper():
-    rng = np.random.default_rng(6)
-    x = np.column_stack([rng.uniform(.05, .95, 400), rng.normal(size=400)])
-    y = rng.binomial(1, x[:, 0]).astype(float)
-    factory = lambda: DecisionTreeRegressor(max_depth=2, random_state=0)
-    wrapped = robust_active_label(x, oracle=lambda i: y[i], target=Mean(), budget=100,
-                                  model=Fixed(), error_model_factory=factory, burn_in=30,
-                                  constraint=.02, random_state=7)
-    # Same steps by hand, sharing one generator as the wrapper does.
-    stream = np.random.default_rng(7)
-    p = Fixed().predict(x)
-    burn = select_burn_in(400, size=30, random_state=stream)
-    assert isinstance(burn, BurnIn) and len(burn.remaining) == 370
-    design = RobustDesign.fit(x[burn.indices], y[burn.indices], p[burn.indices],
-                              error_model_factory=factory, rho=70 / 370, constraint=.02)
-    rest = burn.remaining
-    request = select_for_labeling(p[rest], target=Mean(), design=design, budget=70,
-                                  scores=design.errors(x[rest]), random_state=stream)
-    record = burn.combine(p, y[burn.indices], request, y[rest[request.indices]])
-    for name in ('queried', 'propensities', 'burn_in'):
-        np.testing.assert_array_equal(getattr(record, name), getattr(wrapped, name))
-    np.testing.assert_array_equal(record.observed_labels[record.queried], y[record.queried])
-    assert record.rho_robust == wrapped.rho_robust and record.constraint == .02
-    with pytest.raises(TypeError):  # a non-robust second batch cannot be combined
-        burn.combine(p, y[burn.indices], select_for_labeling(
-            p[rest], target=Mean(), design=Uncertainty(), budget=70, random_state=0), [])
-    with pytest.raises(ValueError):
-        burn.combine(p, y[burn.indices][:-1], request, y[rest[request.indices]])
-
-
 @pytest.mark.slow
 def test_rasi_interval_coverage():
     config = Config(n=800, reps=150)
@@ -166,11 +139,11 @@ def test_rasi_interval_coverage():
         data = dgp.draw(config.n, rng_for(config.seed, rep, 1))
         model = type('Oracle', (), {'predict': lambda self, x: x[:, -1]})()
         features = np.column_stack([data['features'], data['oracle']])
-        record = robust_active_label(
-            features, oracle=lambda i: data['y'][i], target=Mean(), budget=160, model=model,
+        _, record = two_batches(
+            features, lambda i: data['y'][i], model.predict(features), budget=160, burn_in=60,
             error_model_factory=lambda: DecisionTreeRegressor(max_depth=3, min_samples_leaf=5),
-            burn_in=60, constraint=.05, random_state=rng_for(config.seed, rep, 2))
-        low, high = RASI()(record, target=Mean(), alpha=config.alpha).confidence_interval
+            constraint=.05, random_state=rng_for(config.seed, rep, 2))
+        low, high = IPW()(record, target=Mean(), alpha=config.alpha).confidence_interval
         covered += low <= truth <= high
     coverage = covered / config.reps
     assert .88 < coverage <= 1.0, f'coverage={coverage:.3f}'

@@ -3,8 +3,8 @@ import numpy as np
 import pytest
 from sklearn.ensemble import RandomForestRegressor
 
-from openppi import BinnedMean, PPIPlusPlus, RePPI, Mean, PPIData
-from openppi.inference.reppi import three_folds
+from openppi import BinnedMean, Mean, PPIData, RePPI, TwoSample
+from openppi.inference.recalibrated import three_folds
 
 TRUTH = np.mean([.1, .2, .9])
 
@@ -53,7 +53,7 @@ def test_gain_over_ppi_plus_plus_matches_theory():
     y, f = discrete_rater(20000, rng)
     _, f_u = discrete_rater(180000, rng)
     data = PPIData(y, f, f_u)
-    reppi, ppi = RePPI(random_state=0)(data, target=Mean()), PPIPlusPlus()(data, target=Mean())
+    reppi, ppi = RePPI(random_state=0)(data, target=Mean()), TwoSample(lam='tuned')(data, target=Mean())
     r, var_y = 20000 / 180000, TRUTH * (1 - TRUTH)
     cov_yf = np.mean(np.array([.1, .2, .9]) * [0, .5, 1]) - TRUTH * .5
     assert ppi.standard_error == pytest.approx(np.sqrt((var_y - cov_yf ** 2 / np.var([0, .5, 1]) / (1 + r)) / 20000), rel=.02)

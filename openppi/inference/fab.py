@@ -4,7 +4,7 @@ from scipy.optimize import brentq, minimize_scalar
 from scipy.special import dawsn, hyp1f1, ndtri
 from ..common.data import PPIData
 from .base import InferenceMethod
-from .ppi_plus_plus import tuned_lambda
+from .two_sample import tuned_lambda
 
 # FAB (frequentist, assisted by Bayes) formulas for W ~ N(beta, 1).
 #

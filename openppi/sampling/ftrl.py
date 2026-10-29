@@ -10,7 +10,7 @@ gamma = 1 / sqrt(n) as in the reference code. Phi_t >= 0 approximates
 E[(Y - f(X))^2 | X] and is passed as the scores. p_t depends only on rows
 before t, so with a fixed model the whole sequence is set before any label
 is seen; it starts at beta and rises to tau. The estimator and interval are
-those of ASI, so inference uses ASI().
+those of ASI, so inference uses IPW().
 """
 import numpy as np
 

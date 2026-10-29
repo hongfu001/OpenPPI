@@ -1,8 +1,11 @@
-"""Sequential ASI kept for the simulations: online flow, Exploring and BudgetCapped."""
+"""Sequential ASI used by coverage.py (not part of the core library): online flow, Exploring, BudgetCapped.
+
+Run with: python -m pytest examples/simulation/test_online.py
+"""
 import numpy as np
 import pytest
 
-from openppi import ASI, Mean, Uniform, Uncertainty, select_for_labeling
+from openppi import IPW, Mean, Uniform, Uncertainty, select_for_labeling
 from online import BudgetCapped, Exploring, active_label
 
 
@@ -34,7 +37,7 @@ def test_target_and_oracle_only_at_queries():
     assert len(target.calls) == 10  # score each block and reference before querying
     assert np.isnan(record.observed_labels[~record.queried]).all()
     np.testing.assert_allclose(record.predictions, x[:, 0])
-    assert ASI()(record, target=target).diagnostics['audits'] == len(calls)
+    assert IPW()(record, target=target).diagnostics['audits'] == len(calls)
 
 
 def test_online_fit_uses_past_queries_and_keeps_history():

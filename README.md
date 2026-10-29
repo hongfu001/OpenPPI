@@ -10,31 +10,48 @@
 
 </div>
 
-OpenPPI is a Python library for prediction-powered inference: valid confidence intervals that combine a small labeled sample with predictions from a fixed machine-learning model. It implements representative methods for passive PPI (labeled and unlabeled samples given) and for active inference (the method chooses which units to label under a budget), each validated against the paper and the official code. Every method inherits from a common `InferenceMethod`, takes a validated data snapshot and returns an `InferenceResult` with the estimate, standard error, confidence interval and diagnostics. The core depends only on NumPy and SciPy. The codebase is under active construction; comments, issues, contributions and collaborations are all welcome!
+OpenPPI is a Python library for prediction-powered inference: valid confidence intervals that combine a small labeled sample with predictions from a fixed machine-learning model. It implements representative methods for passive PPI (labeled and unlabeled samples given) and for active inference (the method chooses which units to label under a budget), each validated against the paper and the official code. Each method is a **sampling component** (which rows to label) combined with an **inference component** (estimate and interval); `openppi.methods` records the published combinations, so `get_method('ASI')` returns its parts. Every inference component inherits from `InferenceMethod`, takes a validated data snapshot and returns an `InferenceResult` with the estimate, standard error, confidence interval and diagnostics. The core depends only on NumPy and SciPy. The codebase is under active construction; comments, issues, contributions and collaborations are all welcome!
 
 # Overview
 
-OpenPPI currently targets the mean of binary labels and implements the following methods.
+OpenPPI currently targets the mean of binary labels and implements the following methods. The last column is the name in the method registry, `openppi.get_method(name)`.
 
 ## Prediction-Powered Inference
 
-| Year | Title | Venue | Code Link | Implementation |
+| Year | Title | Venue | Code Link | Registry name |
 | ---- | ----- | ----- | --------- | -------------- |
-| 2026 | **[Multiple-Prediction-Powered Inference](https://arxiv.org/abs/2603.27414)** | ICLR'26 | | sampling.multippi.multi_allocate inference.multippi.MultiPPI |
-| 2026 | **[Cluster-Robust Prediction-Powered Inference](https://arxiv.org/abs/2610.09601)** | Arxiv | [Link](https://github.com/Michael-Howes/ppi_py) | inference.cluster_ppi.ClusterRobustPPI |
-| 2026 | **[Predictions as Surrogates: Revisiting Surrogate Outcomes in the Age of AI](https://arxiv.org/abs/2501.09731)** | Arxiv | [Link](https://github.com/Wenlong2000/RePPI) | inference.reppi.RePPI |
-| 2025 | **[FAB-PPI: Frequentist, Assisted by Bayes, Prediction-Powered Inference](https://arxiv.org/abs/2502.02363)** | ICML'25 | [Link](https://github.com/stefanocortinovis/fab-ppi) | inference.fab_ppi.FABPPI |
-| 2023 | **[PPI++: Efficient Prediction-Powered Inference](https://arxiv.org/abs/2311.01453)** | Arxiv | [Link](https://github.com/aangelopoulos/ppi_py) | inference.ppi_plus_plus.PPIPlusPlus |
-| 2023 | **[Prediction-Powered Inference](https://arxiv.org/abs/2301.09633)** | Science | [Link](https://github.com/aangelopoulos/ppi_py) | inference.ppi.PPI |
+| 2026 | **[Multiple-Prediction-Powered Inference](https://arxiv.org/abs/2603.27414)** | ICLR'26 | | `MultiPPI` |
+| 2026 | **[Cluster-Robust Prediction-Powered Inference](https://arxiv.org/abs/2610.09601)** | Arxiv | [Link](https://github.com/Michael-Howes/ppi_py) | `Cluster-PPI` |
+| 2026 | **[Predictions as Surrogates: Revisiting Surrogate Outcomes in the Age of AI](https://arxiv.org/abs/2501.09731)** | Biometrika | [Link](https://github.com/Wenlong2000/RePPI) | `RePPI` |
+| 2025 | **[FAB-PPI: Frequentist, Assisted by Bayes, Prediction-Powered Inference](https://arxiv.org/abs/2502.02363)** | ICML'25 | [Link](https://github.com/stefanocortinovis/fab-ppi) | `FAB-PPI` |
+| 2023 | **[PPI++: Efficient Prediction-Powered Inference](https://arxiv.org/abs/2311.01453)** | Ann. Appl. Stat. | [Link](https://github.com/aangelopoulos/ppi_py) | `PPI++` |
+| 2023 | **[Prediction-Powered Inference](https://arxiv.org/abs/2301.09633)** | Science | [Link](https://github.com/aangelopoulos/ppi_py) | `PPI` |
 
 ## Active Inference
 
-| Year | Title | Venue | Code Link | Implementation |
+| Year | Title | Venue | Code Link | Registry name |
 | ---- | ----- | ----- | --------- | -------------- |
-| 2026 | **[Revisiting Active Sequential Prediction-Powered Mean Estimation](https://arxiv.org/abs/2604.18569)** | ICLR'26 | | sampling.ftrl.FTRLDesign |
-| 2025 | **[Robust Sampling for Active Statistical Inference](https://arxiv.org/abs/2511.08991)** | NeurIPS'25 | [Link](https://github.com/lphLeo/Robust-Active-Statistical-Inference) | sampling.rasi.RobustDesign inference.rasi.RASI |
-| 2025 | **[Balanced Active Inference](https://papers.neurips.cc/paper_files/paper/2025/hash/4a3dadd6fd404a113e190e07380f0761-Abstract-Conference.html)** | NeurIPS'25 | [Link](https://github.com/Uninfty/Balanced_Active_Inference) | sampling.balanced.BalancedDesign inference.balanced.BAI |
-| 2024 | **[Active Statistical Inference](https://arxiv.org/abs/2403.03208)** | ICML'24 | | sampling.asi.Uncertainty inference.asi.ASI |
+| 2026 | **[Revisiting Active Sequential Prediction-Powered Mean Estimation](https://arxiv.org/abs/2604.18569)** | ICLR'26 | [Link](https://openreview.net/forum?id=Iw0tMeLed8) | `FTRL` |
+| 2025 | **[Robust Sampling for Active Statistical Inference](https://arxiv.org/abs/2511.08991)** | NeurIPS'25 | [Link](https://github.com/lphLeo/Robust-Active-Statistical-Inference) | `RASI` |
+| 2025 | **[Balanced Active Inference](https://papers.neurips.cc/paper_files/paper/2025/hash/4a3dadd6fd404a113e190e07380f0761-Abstract-Conference.html)** | NeurIPS'25 | [Link](https://github.com/Uninfty/Balanced_Active_Inference) | `BAI` |
+| 2024 | **[Active Statistical Inference](https://arxiv.org/abs/2403.03208)** | ICML'24 | [Link](https://github.com/tijana-zrnic/active-inference) | `ASI` |
+
+## Methods as components
+
+| Method | Sampling component | Inference component | Data |
+| ------ | ------------------ | ------------------- | ---- |
+| PPI | pre-split samples | `TwoSample(lam=1.0)` | `PPIData` |
+| PPI++ | pre-split samples | `TwoSample(lam='tuned')` | `PPIData` |
+| RePPI | pre-split samples | `RePPI()` | `PPIData` |
+| FAB-PPI | pre-split samples | `FABPPI()` | `PPIData` |
+| Cluster-PPI | pre-split samples | `ClusterRobustPPI()` | `ClusteredPPIData` |
+| MultiPPI | `multi_allocate` | `MultiPPI()` | `MultiPPIData` |
+| ASI | `Uncertainty(tau=.5)` | `IPW()` | `ActiveData` |
+| RASI | burn-in, then `RobustDesign.fit(...)` | `IPW()` | `ActiveData` |
+| FTRL | `FTRLDesign()` | `IPW()` | `ActiveData` |
+| BAI | `BalancedDesign()` | `BAI()` | `BalancedActiveData` |
+
+ASI, RASI and FTRL share the IPW estimator and differ only in how rows are chosen; PPI and PPI++ share the two-sample estimator and differ only in λ. Components can be combined freely, e.g. a `RobustDesign` with any estimator that accepts `ActiveData`.
 
 ## TODO
 
@@ -76,7 +93,7 @@ Here is a simple example of power-tuned PPI++ for a binary mean, with an indepen
 ```python
 from sklearn.ensemble import RandomForestRegressor
 from dataset.judge_sim import make_judge_data          # examples/simulation/dataset
-from openppi import PPIPlusPlus, Mean, PPIData, split
+from openppi import Mean, PPIData, TwoSample, split
 
 # Split iid rows into a training, a labeled and an unlabeled sample.
 frame = make_judge_data(n=2000, seed=0)
@@ -88,7 +105,7 @@ model = RandomForestRegressor(n_estimators=60, min_samples_leaf=8, max_depth=8, 
 data = PPIData(labels=labeled[1], labeled_predictions=model.predict(labeled[0]),
                unlabeled_predictions=model.predict(unlabeled))
 
-result = PPIPlusPlus()(data, target=Mean(), alpha=.05)
+result = TwoSample(lam='tuned')(data, target=Mean(), alpha=.05)     # PPI++
 print(f"Estimate: {result.estimate:.4f}")
 print(f"Confidence interval: {result.confidence_interval}")
 print(f"Lambda: {result.diagnostics['prediction_weight']:.3f}")
@@ -97,12 +114,13 @@ print(f"Lambda: {result.diagnostics['prediction_weight']:.3f}")
 Active inference selects the rows to label first and then runs inference on the labeled record:
 
 ```python
-from openppi import ASI, Mean, Uncertainty, select_for_labeling
+from openppi import Mean, get_method, select_for_labeling
 
-request = select_for_labeling(predictions, target=Mean(), design=Uncertainty(tau=.5),
+recipe = get_method('ASI')                                # Uncertainty(tau=.5) + IPW()
+request = select_for_labeling(predictions, target=Mean(), design=recipe.sampling(),
                               budget=400, random_state=42)
 record = request.with_labels(annotate(request.indices))   # labels only for the selected rows
-result = ASI()(record, target=Mean(), alpha=.05)
+result = recipe.inference(record, target=Mean(), alpha=.05)
 ```
 
 Every method has an executed notebook in [examples/simulation](examples/simulation) (`ppi.ipynb`, `ppi_plus_plus.ipynb`, `asi.ipynb`, ...). They run from that folder, so the simulated `dataset` and `model` packages import directly. The repeated ASI experiment and its plots:
@@ -119,15 +137,17 @@ The [method reference](docs/methods.md) documents each method's interface, formu
 
 ```text
 openppi/              installable core library (NumPy and SciPy only)
-├── sampling/         which rows to label: Uniform, Uncertainty (ASI), RobustDesign (RASI),
-│                     BalancedDesign (BAI), FTRLDesign, multi_allocate (MultiPPI)
-├── inference/        InferenceMethod and the estimators: PPI, PPIPlusPlus, FABPPI, ClusterRobustPPI,
-│                     MultiPPI, RePPI, ASI, RASI, BAI
-└── common/           data structures and split(), targets, InferenceResult, shared formulas
+├── sampling/         which rows to label, one file per mechanism: uniform, uncertainty, robust,
+│                     balanced, ftrl, allocation
+├── inference/        estimators, one file per estimator: ipw (IPW), two_sample (TwoSample),
+│                     recalibrated (RePPI), fab (FABPPI), cluster (ClusterRobustPPI), multi (MultiPPI),
+│                     balanced (BAI)
+├── common/           data structures and split(), targets, InferenceResult, shared formulas
+└── methods.py        registry: method = sampling component + inference component
 examples/
 ├── simulation/       notebooks per method, coverage.py, online.py, simulated dataset/ and model/
 └── real_data/        (to come)
-tests/                unit and coverage tests
+tests/                unit and coverage tests (examples/simulation/test_online.py covers online.py)
 docs/methods.md       method reference
 ```
 
@@ -138,7 +158,7 @@ If you find our repository useful for your research, please consider citing:
 ```bibtex
 @software{openppi,
   title = {OpenPPI: An Open-Source Framework for Prediction-Powered Inference},
-  author = {Gao, Hongfu and Zhou, Wang},
+  author = {Gao, Hongfu and Zhou, Wang and Liu, Pengfei and Hu, Jiang},
   url = {https://github.com/hongfu001/OpenPPI},
   year = {2026}
 }
@@ -148,3 +168,5 @@ If you find our repository useful for your research, please consider citing:
 
 - Hongfu Gao
 - Wang Zhou
+- Pengfei Liu
+- Jiang Hu

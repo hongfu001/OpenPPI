@@ -1,11 +1,9 @@
-"""Balanced active inference: cube sampling, record hooks, variance, coverage."""
+"""Balanced active inference: cube sampling, variance, coverage."""
 import numpy as np
 import pytest
 
-from openppi import (
-    ASI, BAI, ActiveData, BalancedActiveData, BalancedDesign, Mean, Uncertainty,
-    cube_sample, select_for_labeling,
-)
+from openppi import BAI, IPW, BalancedDesign, Mean, select_for_labeling
+from openppi.sampling.balanced import cube_sample
 from openppi.inference.balanced import cube_variance
 from config import Config
 from utils import rng_for
@@ -56,25 +54,6 @@ def test_fixed_size_selects_about_sum_pi():
         assert abs(xi.sum() - pi.sum()) <= 1 + 1e-9
 
 
-def test_records_and_balancing_choices():
-    p = np.linspace(.05, .95, 300)
-    plain = select_for_labeling(p, target=Mean(), design=Uncertainty(), budget=60, random_state=0)
-    assert type(plain.with_labels(np.zeros(len(plain.indices)))) is ActiveData
-    request = select_for_labeling(p, target=Mean(), design=BalancedDesign(), budget=60, random_state=0)
-    record = request.with_labels(np.zeros(len(request.indices)))
-    assert isinstance(record, BalancedActiveData)
-    scores = Mean().sampling_scores(np.empty((300, 0)), p)
-    np.testing.assert_array_equal(record.balancing[:, 0], scores)
-    np.testing.assert_allclose(record.propensities, plain.propensities)  # same ASI probabilities
-    signed = np.sin(np.arange(300.))
-    request = select_for_labeling(p, target=Mean(), design=BalancedDesign(balancing=signed),
-                                  budget=60, random_state=0)
-    record = request.with_labels(np.zeros(len(request.indices)))
-    np.testing.assert_array_equal(record.balancing[:, 0], signed)
-    with pytest.raises(ValueError):
-        select_for_labeling(p, target=Mean(), design=BalancedDesign(balancing=signed[:10]), budget=60)
-
-
 def test_cube_variance_matches_reference():
     rng = np.random.default_rng(2)
     n = 400
@@ -94,7 +73,7 @@ def test_bai_point_matches_asi_and_variance_parts():
     record = request.with_labels(y[request.indices])
     result = BAI()(record, target=Mean())
     finite = BAI(finite_population=True)(record, target=Mean())
-    assert result.estimate == ASI()(record, target=Mean()).estimate == finite.estimate
+    assert result.estimate == IPW()(record, target=Mean()).estimate == finite.estimate
     d = result.diagnostics
     assert result.standard_error ** 2 == pytest.approx(d['design_variance'] + d['population_variance'])
     assert finite.standard_error ** 2 == pytest.approx(d['design_variance'])
