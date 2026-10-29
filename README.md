@@ -160,44 +160,6 @@ RASI's `RobustDesign.fit(..., target=target, covariates=V_burn, reference_covari
 
 Every method has an executed notebook in [examples/simulation](examples/simulation) (`ppi.ipynb`, `ppi_plus_plus.ipynb`, `asi.ipynb`, ...). They run from that folder, so the simulated `dataset` and `model` packages import directly. The [method reference](docs/methods.md) documents each method's interface, formulas, differences from the official implementations, and validation results.
 
-## Binary mean
-
-The repeated ASI experiment and its plots:
-
-```sh
-cd examples/simulation
-python coverage.py --reps 100          # writes results_asi/
-jupyter notebook comparison.ipynb      # coverage, width and estimates by policy
-```
-
-## Continuous mean
-
-The [regression notebook](examples/simulation/regression.ipynb) compares fixed-predictor mean inference for homoskedastic and heteroskedastic continuous labels, both with exact population mean **1**:
-
-```sh
-python examples/simulation/regression.py --reps 100 --out examples/simulation/results_regression
-```
-
-Given-label methods share independently trained predictions, labeled data and unlabeled data: Label-only, PPI, PPI++, PSPA, RePPI, CalPPI and LinearCalPPI. The selection group compares Uniform+IPW, ASI, RASI, BAI, FTRL and StratPPI with their respective sampling rules; StratPPI collects fresh conditional samples under a pilot-planned stratified allocation. Summaries report coverage, width, bias, RMSE and actual labels, with predictor-training, error-pilot and burn-in label costs shown separately. Default selection budgets are expected counts for Bernoulli designs; no equality of total labeling cost is implied. See [method notes](docs/methods.md#continuous-response-mean-simulation) for the data-generating model, score choices and online interface.
-
-## Linear-regression coefficients
-
-```sh
-python examples/simulation/regression.py --target linear --focus 1 --reps 100
-```
-
-The [coefficient notebook](examples/simulation/linear_regression.ipynb) shows coefficients, covariance, the focus-coefficient comparison and an all-coefficient supplement; the [active coefficient notebook](examples/simulation/active_linear_regression.ipynb) shows the full two-batch ASI/RASI flow. The experiment reports `given_labels` and `select_labels` groups separately, including all labeling costs.
-
-## Unit Test
-
-Each method is tested against hand calculations, the formulas of the official code and Monte Carlo coverage. The repeated-sampling coverage checks are marked `slow`; skip them for a quick run:
-
-```sh
-python -m pytest -m "not slow"     # about 2 seconds
-python -m pytest                   # everything, about 45 seconds
-```
-
-If an Anaconda environment crashes while loading the readline debugging dependency, use `python -m pytest -p no:debugging`.
 
 # Repository layout
 
@@ -225,11 +187,7 @@ docs/methods.md       method reference
 
 OpenPPI is still under active development. We will add the following features down the road:
 
-- Quantile and GLM targets, general convex M-estimation, and the M-estimation versions of FAB-PPI and Cluster-Robust PPI++.
-- Regression targets for the remaining registered methods.
 - Sequential (online) active inference in the core library; it currently lives in `examples/simulation/online.py`.
-- Labeling-design planning formulas for clustered data (Appendix C of Cluster-Robust PPI).
-- Confidence sequences with anytime-valid guarantees.
 
 # Citation
 
