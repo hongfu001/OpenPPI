@@ -1,6 +1,6 @@
 # prediction-inference
 
-面向 prediction-assisted inference 的 Python 算法库。目前实现 **ASI、RASI（稳健主动推断）、BAI（平衡主动推断）、FTRL 查询策略与独立两样本 PPI 的二元均值估计及终点 Wald 区间**。每种方法继承共同的 `Method`，统一检查输入并返回 `InferenceResult`。
+面向 prediction-assisted inference 的 Python 算法库。目前实现 **ASI、RASI（稳健主动推断）、BAI（平衡主动推断）、FTRL 查询策略、独立两样本 PPI 与 PPI++ 的二元均值估计及终点 Wald 区间**。每种方法继承共同的 `Method`，统一检查输入并返回 `InferenceResult`。
 
 ## 安装与运行
 
@@ -10,6 +10,7 @@ PYTHONPATH=src:. python examples/asi_mean.py
 PYTHONPATH=src:. python examples/bai_mean.py
 PYTHONPATH=src:. python examples/ftrl_mean.py
 PYTHONPATH=src:. python examples/ppi_mean.py
+PYTHONPATH=src:. python examples/ppi_plus_mean.py
 PYTHONPATH=src:. python examples/rasi_mean.py
 PYTHONPATH=src:. python main.py --reps 100
 python -m pytest
@@ -39,13 +40,14 @@ src/prediction_inference/
     ├── asi.py        # ASI(Method)
     ├── bai.py        # BAI(Method)、cube_variance
     ├── rasi.py       # RASI(ASI)
-    └── ppi.py        # PPI(Method)
+    ├── ppi.py        # PPI(Method)
+    └── ppi_plus.py   # PPIPlusPlus(Method)、tuned_lambda
 ```
 
 - `dataset/judge_sim.py`：DGP 和返回 DataFrame 的 `make_judge_data`。
 - `model/learners.py`：预测模型封装；`model/judge.py`：评委均值模型。
 - `common/`：配置、通用工具（种子、输出、汇总、PPI 切分）和核心测试。
-- `examples/asi_mean.py`、`examples/bai_mean.py`、`examples/ftrl_mean.py`、`examples/ppi_mean.py`、`examples/rasi_mean.py`：单次运行示例。
+- `examples/asi_mean.py`、`examples/bai_mean.py`、`examples/ftrl_mean.py`、`examples/ppi_mean.py`、`examples/ppi_plus_mean.py`、`examples/rasi_mean.py`：单次运行示例。
 - `examples/simulations/`：仿真策略与重复实验入口；`online.py` 是序贯版 ASI（仅仿真使用，见下文）；`main.py` 保留兼容命令行入口。
 
 依赖方向：examples 可使用所有层；model、dataset 不依赖算法或示例；算法独立于 model、dataset、common。
@@ -53,20 +55,21 @@ src/prediction_inference/
 ## 方法接口
 
 ```python
-from prediction_inference import ASI, BAI, PPI, RASI, Mean
+from prediction_inference import ASI, BAI, PPI, PPIPlusPlus, RASI, Mean
 
 # record 是 ActiveData，balanced 是 BalancedActiveData，data 是 PPIData，robust 是 RobustActiveData。
 # result = ASI()(record, target=Mean(), alpha=.05)
 # result = BAI()(balanced, target=Mean(), alpha=.05)
 # result = RASI()(robust, target=Mean(), alpha=.05)
 # result = PPI()(data, target=Mean(), alpha=.05)
+# result = PPIPlusPlus()(data, target=Mean(), alpha=.05)
 ```
 
 `Method` 位于 `prediction_inference.base`，负责检查数据类型、目标类型和 alpha，再调用子类的 `_estimate(data, target)`。子类返回 `(point, se, diagnostics)`，可在 diagnostics 中放入 `values`。主类将这些值交给区间函数，并从最终诊断信息中移除 `values`。
 
 `InferenceResult` 保留 `estimate`、`standard_error`、`confidence_interval`、`alpha`、`method`、`diagnostics` 六个字段。
 
-默认使用私有的 Wald 公式。自定义区间函数的签名为 `interval(point, se, alpha, values=None)`，通过 `ASI(interval=...)` 或 `PPI(interval=...)` 传入。ASI 的 values 是校正值数组；PPI 的是包含 `residuals` 与 `unlabeled_predictions` 两个数组的字典。
+默认使用私有的 Wald 公式。自定义区间函数的签名为 `interval(point, se, alpha, values=None)`，通过 `ASI(interval=...)`、`PPI(interval=...)` 或 `PPIPlusPlus(interval=...)` 传入。ASI 的 values 是校正值数组；PPI 的是包含 `residuals` 与 `unlabeled_predictions` 两个数组的字典；PPI++ 的字典结构相同，两项分别为 `Y - λf` 与 `λf̃`。
 
 旧的 `asi`、`asi_mean`、`ppi`、估计器与区间类接口已删除。`_stats.py` 仅供库内部使用。
 
@@ -171,6 +174,25 @@ print(result.estimate, result.confidence_interval, result.diagnostics)
 
 数据行需要来自 iid 总体，三个部分互不重叠。预测模型仅用独立训练集拟合，推断前固定。`PPIData` 要求标注标签和预测对齐，两个推断样本各至少两行，所有数组复制并设为只读。目前真实标签仅支持二元值。
 
+## PPI++（功效调参的两样本 PPI）
+
+实现 Angelopoulos, Duchi & Zrnic（2023）的均值版本（论文例 6.1 与算法 2），参照 `yiqunchen/pppower` 的 `ppi_mean_test`。数据与 PPI 相同，使用 `PPIData`（完整示例见 `examples/ppi_plus_mean.py`）：
+
+```python
+from prediction_inference import PPIPlusPlus, Mean
+
+result = PPIPlusPlus()(data, target=Mean(), alpha=.05)        # λ 用插件估计
+result.diagnostics['prediction_weight']                        # 实际使用的 λ
+PPIPlusPlus(lam=0)(data, target=Mean())                        # 经典估计：只用标注标签
+PPIPlusPlus(lam=1)(data, target=Mean())                        # 点估计与 PPI 相同
+```
+
+- **点估计**：`mean(Y) + λ * (mean(f_unlabeled) - mean(f_labeled))`，对任意 λ 无偏。
+- **λ**：默认 `λ̂ = Cov_n(Y, f) / ((1 + n/N) * Var_{N+n}(f))`（`tuned_lambda`），渐近方差最小。预测越准 λ̂ 越接近 1，预测无用时接近 0（退化为经典估计），预测与标签负相关时为负。均值问题对任意实数 λ 都是凸的，因此不截断到 [0, 1]；预测为常数时取 λ = 0。
+- **标准误**：`sqrt(λ² Var_{N+n}(f) / N + Var_n(Y - λf) / n)`，即算法 2 的 `Σ̂ = (n/N) V̂_f + V̂_Δ` 除以 n。
+- **与 pppower 的差异**：pppower 的 λ̂ 与方差中 Var(f) 只用标注样本；这里按论文合并两个样本，N 远大于 n 时两者几乎相同。`lam=1` 时标准误与 `PPI` 略有不同，原因是 `PPI` 的 Var(f) 只用未标注样本。
+- **验证**：`examples/ppi_plus_mean.py` 中 λ̂ = 0.536，95% 区间宽度经典 0.0981、PPI 0.0965、PPI++ 0.0933。
+
 ## 稳健主动推断 RASI（两批）
 
 实现 Li, Zrnic & Candès（NeurIPS 2025）的算法 1，参照官方代码 `lphLeo/Robust-Active-Statistical-Inference`。RASI 是两批标注，第二批与 ASI 共用 `select_for_labeling` 接口（完整示例见 `examples/rasi_mean.py`）：
@@ -211,7 +233,7 @@ ASI 使用 `Z_i = f_i + R_i / pi_i * (Y_i - f_i)`，点估计为 `mean(Z)`，标
 
 ASI 保留总体均值、渐近终点 Wald 设计，需要 iid 总体、标注前确定的正查询概率和相应的矩条件。该方差公式不提供有限样本或 anytime 保证。
 
-PPI 使用 `mean(f_unlabeled) + mean(y_labeled - f_labeled)`，标准误为 `sqrt(var(f_unlabeled, ddof=1)/N + var(y_labeled - f_labeled, ddof=1)/n)`。两项来自独立推断样本，预测模型需要独立训练。
+PPI 使用 `mean(f_unlabeled) + mean(y_labeled - f_labeled)`，标准误为 `sqrt(var(f_unlabeled, ddof=1)/N + var(y_labeled - f_labeled, ddof=1)/n)`。两项来自独立推断样本，预测模型需要独立训练。PPI++ 是把预测项乘以 λ 的推广，公式见上文 PPI++ 一节。
 
 ## 序贯版本（仅仿真）
 
@@ -232,14 +254,15 @@ python -m pytest
 
 `results_asi/config.json` 记录参数；`per_rep_final.csv` 保存 300 条逐次结果；`fixed_budget_comparison.csv` 保存三种策略的汇总。
 
-测试分五个文件：
+测试分六个文件：
 
 - `common/test_core.py`：ASI 校正公式与区间函数收到的 values、`Uncertainty` 的 η 与预算下限、`tune_tau`、`LabelRequest` 只含选点信息且 `with_labels` 校验标签数量、PPI 公式与切分，以及固定预测下 200 次 DGP 覆盖率。
 - `common/test_bai.py`：cube 抽样满足平衡约束且包含概率不变、`fixed_size` 的样本量、默认与带符号平衡变量的记录、方差函数与官方 `estimate_cube_variance` 逐值一致、BAI 与 ASI 点估计一致及方差分解，以及 150 次 DGP 覆盖率。
 - `common/test_ftrl.py`：查询概率与官方 `compute_pt` 循环逐值一致、从 β 单调升到 τ 且不超预算、`p_t` 不受当前行影响，以及 200 次 DGP 覆盖率。
+- `common/test_ppi_plus.py`：λ̂、点估计和标准误与手算一致，λ=0 为经典均值、λ=1 与 PPI 点估计相同，常数预测时 λ=0，调参后的标准误不大于两个基线，负相关预测时 λ̂ < 0，以及 200 次 DGP 覆盖率。
 - `common/test_rasi.py`：三条路径的端点与预算、`RobustDesign` 逐行概率复现 `budget_path`、`scores=` 不影响默认选点、分步两批写法与便捷函数一致、与官方极小极大目标逐点一致、c=0 时 ρ=0 且 c 增大时 ρ 单调趋于 1、查询只发生在选中行、RASI 与 ASI 点估计一致，以及 150 次 DGP 覆盖率。
 - `common/test_online.py`：序贯版本的查询时机、历史保留、预训练更新、按标签数触发更新、`Exploring` 与周期性用完预算，以及固定模型下与 `select_for_labeling` 一致。
 
 若当前 Anaconda 环境在加载 readline 调试依赖时崩溃，可用 `python -m pytest -p no:debugging`。
 
-后续再做配置拆分、Quantile/OLS 与连续标签 Mean、PPI++、序贯版本并入核心库、ConfidenceSequence 和更多组合有效性检查。
+后续再做配置拆分、Quantile/OLS 与连续标签 Mean、PPI++ 的 GLM/M 估计版本、序贯版本并入核心库、ConfidenceSequence 和更多组合有效性检查。
