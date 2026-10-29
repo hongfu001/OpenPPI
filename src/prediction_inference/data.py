@@ -64,6 +64,43 @@ class PPIData:
             raise ValueError('Mean PPI currently requires binary labels')
 
 
+
+@dataclass(frozen=True)
+class ClusteredPPIData:
+    """One row per unit for binary mean PPI with clustered data.
+
+    clusters holds a cluster id per unit; clusters are iid draws, units within
+    a cluster may be arbitrarily dependent. labeled marks the units whose label
+    was revealed, each with a cluster-level probability chosen independently of
+    the data; clusters may be fully, partially or not labeled. Unlabeled labels
+    must be NaN. Arrays are copied and made read-only.
+    """
+    labels: np.ndarray
+    predictions: np.ndarray
+    labeled: np.ndarray
+    clusters: np.ndarray
+
+    def __post_init__(self):
+        raw = np.asarray(self.labeled)
+        if raw.dtype.kind != 'b':
+            raise ValueError('labeled must contain booleans')
+        for name, dtype in (('labels', float), ('predictions', float), ('labeled', bool), ('clusters', None)):
+            array = np.array(getattr(self, name), dtype=dtype, copy=True)
+            if array.ndim != 1:
+                raise ValueError('All arrays must be one-dimensional')
+            array.setflags(write=False)
+            object.__setattr__(self, name, array)
+        if len({len(self.labels), len(self.predictions), len(self.labeled), len(self.clusters)}) != 1:
+            raise ValueError('labels, predictions, labeled and clusters must align')
+        if not (np.isfinite(self.predictions).all() and ((self.predictions >= 0) & (self.predictions <= 1)).all()):
+            raise ValueError('Binary Mean PPI requires probabilities in [0, 1]')
+        if not np.isin(self.labels[self.labeled], [0., 1.]).all():
+            raise ValueError('Mean PPI currently requires binary labels')
+        if not np.isnan(self.labels[~self.labeled]).all():
+            raise ValueError('Unlabeled labels must be NaN')
+        if self.labeled.sum() < 2 or (~self.labeled).sum() < 1 or len(np.unique(self.clusters)) < 2:
+            raise ValueError('Need two labeled units, one unlabeled unit and two clusters')
+
 ROBUST_PATHS = ('linear', 'geometric', 'hellinger')
 
 

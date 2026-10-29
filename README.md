@@ -1,6 +1,6 @@
 # OpenPPI
 
-A Python library for prediction-powered inference (package name `prediction_inference`). It currently implements **binary mean estimation with endpoint Wald intervals for ASI, RASI (robust active inference), BAI (balanced active inference), the FTRL query policy, independent two-sample PPI, PPI++ and FAB-PPI**. Every method inherits from a common `Method`, which validates the inputs and returns an `InferenceResult`.
+A Python library for prediction-powered inference (package name `prediction_inference`). It currently implements **binary mean estimation with endpoint Wald intervals for ASI, RASI (robust active inference), BAI (balanced active inference), the FTRL query policy, independent two-sample PPI, PPI++, FAB-PPI and Cluster-Robust PPI++**. Every method inherits from a common `Method`, which validates the inputs and returns an `InferenceResult`.
 
 ## Installation and usage
 
@@ -8,6 +8,7 @@ A Python library for prediction-powered inference (package name `prediction_infe
 python -m pip install -e '.[simulation,test]'
 PYTHONPATH=src:. python examples/asi_mean.py
 PYTHONPATH=src:. python examples/bai_mean.py
+PYTHONPATH=src:. python examples/cluster_ppi_mean.py
 PYTHONPATH=src:. python examples/fab_ppi_mean.py
 PYTHONPATH=src:. python examples/ftrl_mean.py
 PYTHONPATH=src:. python examples/ppi_mean.py
@@ -25,7 +26,7 @@ Simulations run from the source repository and are not part of the core package.
 src/prediction_inference/
 ├── __init__.py       # public interface
 ├── base.py           # Method, InferenceResult
-├── data.py           # ActiveData, PPIData, RobustActiveData, BalancedActiveData
+├── data.py           # ActiveData, PPIData, ClusteredPPIData, RobustActiveData, BalancedActiveData
 ├── targets.py        # Target, Mean; the single definition of sampling scores
 ├── _stats.py         # private formulas: ipw_correct, wald_interval
 ├── _fab.py           # private FAB formulas: horseshoe/Gaussian posterior means, spending function, FAB region
@@ -41,16 +42,17 @@ src/prediction_inference/
     ├── __init__.py
     ├── asi.py        # ASI(Method)
     ├── bai.py        # BAI(Method), cube_variance
+    ├── cluster_ppi.py # ClusterRobustPPI(Method), cluster_moments
     ├── fab_ppi.py    # FABPPI(Method)
     ├── rasi.py       # RASI(ASI)
     ├── ppi.py        # PPI(Method)
     └── ppi_plus.py   # PPIPlusPlus(Method), tuned_lambda
 ```
 
-- `dataset/judge_sim.py`: the DGP and `make_judge_data`, which returns a DataFrame.
+- `dataset/judge_sim.py`: the DGP, `make_judge_data`, which returns a DataFrame, and `make_clustered_data`, units nested in iid clusters with a biased predictor (unit-level mean 0.5).
 - `model/learners.py`: prediction model wrappers; `model/judge.py`: the judge mean model.
 - `common/`: configuration, shared utilities (seeding, output, summaries, PPI split) and the core tests.
-- `examples/asi_mean.py`, `examples/bai_mean.py`, `examples/fab_ppi_mean.py`, `examples/ftrl_mean.py`, `examples/ppi_mean.py`, `examples/ppi_plus_mean.py`, `examples/rasi_mean.py`: single-run examples.
+- `examples/asi_mean.py`, `examples/bai_mean.py`, `examples/cluster_ppi_mean.py`, `examples/fab_ppi_mean.py`, `examples/ftrl_mean.py`, `examples/ppi_mean.py`, `examples/ppi_plus_mean.py`, `examples/rasi_mean.py`: single-run examples.
 - `examples/simulations/`: simulation strategies and the repeated-experiment entry point; `online.py` is sequential ASI (simulation only, see below); `main.py` keeps the backwards-compatible command line.
 
 Dependency direction: examples may use every layer; model and dataset do not depend on the algorithms or the examples; the algorithms are independent of model, dataset and common.
@@ -58,15 +60,17 @@ Dependency direction: examples may use every layer; model and dataset do not dep
 ## Method interface
 
 ```python
-from prediction_inference import ASI, BAI, FABPPI, PPI, PPIPlusPlus, RASI, Mean
+from prediction_inference import ASI, BAI, ClusterRobustPPI, FABPPI, PPI, PPIPlusPlus, RASI, Mean
 
-# record is ActiveData, balanced is BalancedActiveData, data is PPIData, robust is RobustActiveData.
+# record is ActiveData, balanced is BalancedActiveData, data is PPIData, robust is RobustActiveData,
+# clustered is ClusteredPPIData.
 # result = ASI()(record, target=Mean(), alpha=.05)
 # result = BAI()(balanced, target=Mean(), alpha=.05)
 # result = RASI()(robust, target=Mean(), alpha=.05)
 # result = PPI()(data, target=Mean(), alpha=.05)
 # result = PPIPlusPlus()(data, target=Mean(), alpha=.05)
 # result = FABPPI()(data, target=Mean(), alpha=.05)
+# result = ClusterRobustPPI()(clustered, target=Mean(), alpha=.05)
 ```
 
 `Method` lives in `prediction_inference.base`. It checks the data type, target type and alpha, then calls the subclass's `_estimate(data, target)`. The subclass returns `(point, se, diagnostics)` and may put `values` into diagnostics; the base class passes these to the interval function and removes `values` from the final diagnostics.
@@ -218,6 +222,29 @@ result = FABPPI(imputed_uncertainty=False)(data, target=Mean())    # the paper's
 - **Differences from the official implementation**: the official code clips λ̂ to [0, 1]; here, consistently with `PPIPlusPlus`, it is not clipped (eq. 14 of the paper has no clipping). The official pad uses `Σ(λf̃ - mean f̃)²/(N-1)/N`, which contains a bias term when λ ≠ 1; here it is `Var(f̃)/N` as in the paper's Algorithm 2. Only the horseshoe prior the paper recommends and the Gaussian comparison prior are implemented; scaled horseshoe, Laplace and other priors needing numerical integration are not.
 - **Validation**: the horseshoe posterior mean agrees with numerical integration to within 1e-6; the Gaussian-prior region matches the official closed-form roots point by point; under W ~ N(β, 1) the FAB region has about nominal coverage; coverage over 200 DGP repetitions passes. In `examples/fab_ppi_mean.py`, N = 1200 and n = 400, so the uncertainty in mean(f̃) is not negligible and the full FAB-PPI interval (width 0.121) is wider than PPI's (0.097); the paper's gains come from the `imputed_uncertainty=False` setting with N ≫ n (0.079 in this example, but N is not large enough, so it is shown for comparison only).
 
+## Cluster-Robust PPI++ (clustered and partially labeled data)
+
+Implements the mean version of Broska & Howes (2026) (Theorem 1 and eq. 12), following `ppi_mean_ci_cluster` in the official code `Michael-Howes/ppi_py`. Units are nested in iid clusters and may be arbitrarily dependent within a cluster; clusters can be fully labeled, partially labeled or fully unlabeled, so labeled and unlabeled units are not independent and `PPIData` does not apply. `ClusteredPPIData` holds one row per unit (full example in `examples/cluster_ppi_mean.py`):
+
+```python
+import numpy as np
+from prediction_inference import ClusterRobustPPI, ClusteredPPIData, Mean
+
+data = ClusteredPPIData(labels=np.where(labeled, y, np.nan),   # NaN where the label was not revealed
+                        predictions=f, labeled=labeled, clusters=cluster_ids)
+result = ClusterRobustPPI()(data, target=Mean(), alpha=.05)    # tuned λ
+ClusterRobustPPI(lam=0)(data, target=Mean())                   # labels only, cluster-robust SE
+```
+
+- **Assumptions**: clusters are iid; within a cluster every unit is labeled independently with a cluster-level probability p_g chosen independently of the data (unit-level Bernoulli labeling and whole-cluster labeling are the two extremes). Labels chosen from the predictions or from earlier labels are not covered.
+- **Estimand**: the unit-level mean `E[Σ_i Y_gi] / E[m_g]` (eq. 3), not the mean of cluster means.
+- **Point estimate**: `λ mean(f_unlabeled) + mean(Y - λf)` over labeled units, as in PPI++.
+- **Standard error**: per cluster, `ε̂_g = Σ ξ(Y - θ̂)` and `Ẑ_g = Σ (ξ - (n/N)(1 - ξ))(f - mean f)` with mean f over all units; `Σ̂ = Σ_g [ε̂_g, Ẑ_g]ᵀ[ε̂_g, Ẑ_g] / G` and `SE² = G (Σ̂₁₁ - 2λΣ̂₁₂ + λ²Σ̂₂₂) / n²` (eq. 9). There is no small-sample correction, as in the paper.
+- **λ**: by default `λ̂ = Σ̂₁₂ / Σ̂₂₂` with Σ̂ evaluated at the λ = 1 estimate (eq. 12), not clipped. Diagnostics report λ, the PPI correlation `ρ̂ = Σ̂₁₂ / sqrt(Σ̂₁₁ Σ̂₂₂)` (Section 2.5), the numbers of clusters and partially labeled clusters; a custom interval function receives the per-cluster sums as `cluster_rectifier` and `cluster_control`.
+- **Singleton clusters** recover PPI++: the estimate, λ̂ and SE match `PPIPlusPlus` up to the ddof convention of the sample moments.
+- **Not implemented**: the M-estimator version (Appendix A), coordinate-wise λ, sample weights, and the design-planning variance formulas of Appendix C.
+- **Validation**: on `make_clustered_data` with 300 clusters and 200 repetitions, the cluster-robust interval covers at the nominal rate under both unit-level and whole-cluster labeling, while i.i.d. PPI++ undercovers. In `examples/cluster_ppi_mean.py` (labeling probability 0.3), the 95% widths are: partially labeled, 0.075 (labels only), 0.044 (i.i.d. PPI++, too narrow) and 0.072 (Cluster-Robust PPI++); whole clusters, 0.125, 0.044 and 0.075. As in the paper, PPI helps most when labels are concentrated in few clusters.
+
 ## Robust active inference, RASI (two batches)
 
 Implements Algorithm 1 of Li, Zrnic & Candès (NeurIPS 2025), following the official code `lphLeo/Robust-Active-Statistical-Inference`. RASI labels in two batches; the second batch shares the `select_for_labeling` interface with ASI (full example in `examples/rasi_mean.py`):
@@ -279,10 +306,11 @@ By default the three strategies `asi`, `asi_judge` and `asi_pretrained` run 100 
 
 `results_asi/config.json` records the parameters; `per_rep_final.csv` holds the 300 per-repetition results; `fixed_budget_comparison.csv` holds the summary of the three strategies.
 
-The tests are split into seven files:
+The tests are split into eight files:
 
 - `common/test_core.py`: the ASI correction formula and the values received by the interval function, η and the budget floor of `Uncertainty`, `tune_tau`, `LabelRequest` containing only selection information with `with_labels` checking the label count, the PPI formula and split, and coverage over 200 DGP repetitions with fixed predictions.
 - `common/test_bai.py`: cube sampling satisfies the balancing constraints with unchanged inclusion probabilities, the sample size under `fixed_size`, records with default and signed balancing variables, the variance function matching the official `estimate_cube_variance` value by value, BAI and ASI point estimates agreeing along with the variance decomposition, and coverage over 150 DGP repetitions.
+- `common/test_cluster_ppi.py`: the estimate, SE and tuned λ against hand-computed cluster sums, singleton clusters recovering PPI++, λ=0 giving the labels-only mean with the tuned SE no larger than λ=0 or λ=1, and coverage over 200 repetitions under unit-level and whole-cluster labeling, with i.i.d. PPI++ undercovering.
 - `common/test_fab_ppi.py`: the horseshoe posterior mean against numerical integration, the Gaussian region against the official closed-form roots, symmetry of the spending function, the horseshoe region being shorter at 0 and reverting to the z-interval for large y while the Gaussian one does not, the posterior mean lying inside the region, region coverage under W ~ N(β,1), the method's point estimate and the interval formula with `imputed_uncertainty=False`, λ for FAB-PPI++, and coverage over 200 DGP repetitions.
 - `common/test_ftrl.py`: query probabilities matching the official `compute_pt` loop value by value, rising monotonically from β to τ without exceeding the budget, `p_t` unaffected by the current row, and coverage over 200 DGP repetitions.
 - `common/test_ppi_plus.py`: λ̂, the point estimate and the standard error against hand calculations, λ=0 giving the classical mean and λ=1 PPI's point estimate, λ=0 for constant predictions, the tuned standard error no larger than either baseline, λ̂ < 0 for anticorrelated predictions, and coverage over 200 DGP repetitions.

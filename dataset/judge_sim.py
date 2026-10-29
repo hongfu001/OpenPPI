@@ -87,3 +87,18 @@ def make_judge_data(n=2000, seed=0):
     )
     data['label'] = labels
     return data
+
+
+def make_clustered_data(clusters=300, seed=0, cluster_sd=1.5, noise_sd=.1, bias=.05):
+    """Units nested in iid clusters sharing a random effect; the unit-level mean of label is 0.5.
+
+    prediction = clip(P(label = 1) + noise + bias, 0, 1) is a biased, fixed predictor.
+    """
+    rng = np.random.default_rng(seed)
+    cluster = np.repeat(np.arange(clusters), rng.integers(2, 30, clusters))
+    p = expit(rng.normal(0, cluster_sd, clusters)[cluster] + rng.normal(size=len(cluster)))
+    return pd.DataFrame({
+        'cluster': cluster,
+        'label': rng.binomial(1, p).astype(float),
+        'prediction': np.clip(p + rng.normal(0, noise_sd, len(cluster)) + bias, 0, 1),
+    })
