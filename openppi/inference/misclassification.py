@@ -16,6 +16,8 @@ def logit_interval(point, se, alpha, values=None):
 
 def _counts(data):
     y, f, g = data.labels, data.labeled_predictions, data.unlabeled_predictions
+    if not np.isin(y, [0, 1]).all():
+        raise ValueError('RG and MLE require binary labels in {0, 1}')
     if not (np.isin(f, [0, 1]).all() and np.isin(g, [0, 1]).all()):
         raise ValueError('RG and MLE require binary predictions in {0, 1}; threshold probabilities explicitly')
     return np.array([np.sum((y == a) & (f == b))

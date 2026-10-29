@@ -93,9 +93,9 @@ def select_for_labeling(predictions, *, target, design, budget, scores=None, ran
     Label rows request.indices, then call with_labels.
     """
     if not isinstance(target, Mean):
-        raise TypeError('Only the binary Mean target is currently supported')
+        raise TypeError('Only the Mean target is currently supported')
     p = np.asarray(predictions, dtype=float)
-    if p.ndim != 1 or len(p) < 2 or not 0 < budget < len(p):
+    if p.ndim != 1 or len(p) < 2 or not np.isfinite(p).all() or not 0 < budget < len(p):
         raise ValueError('Require a prediction vector with n >= 2 and 0 < budget < n')
     if not isinstance(design, SamplingDesign):
         raise TypeError('design must implement SamplingDesign')

@@ -7,7 +7,7 @@ from sklearn.pipeline import make_pipeline
 
 
 def make_learner(c, seed):
-    """IPW-weighted regression of Y on Z = (X, J); predictions are clipped to [.01, .99] by the caller."""
+    """IPW-weighted regression of Y on Z = (X, J); binary predictions are clipped by the adapter, continuous predictions are raw."""
     if c.learner == 'rf':
         return RandomForestRegressor(n_estimators=60, min_samples_leaf=8, max_depth=8,
                                      random_state=seed, n_jobs=1)
@@ -44,6 +44,12 @@ class SimulationLearner:
     """Refit the configured learner on cumulative queried observations."""
     def __init__(self, config, seed):
         self.config, self.seed = config, seed
+        self.outcome_type = getattr(config, 'outcome_type', 'binary')
+        if self.outcome_type not in ('binary', 'continuous'):
+            raise ValueError('Unknown outcome_type')
+        self.initial_prediction = float(getattr(config, 'initial_prediction', .5))
+        if not np.isfinite(self.initial_prediction):
+            raise ValueError('initial_prediction must be finite')
         self.model = None
         self.initial = None
 
@@ -64,29 +70,38 @@ class SimulationLearner:
 
     def predict(self, x):
         if self.model is None:
-            return np.full(len(x), .5)
-        return np.clip(self.model.predict(x), .01, .99)
+            return np.full(len(x), self.initial_prediction)
+        values = self.model.predict(x)
+        return np.clip(values, .01, .99) if self.outcome_type == 'binary' else values
 
 
 class SklearnModel:
-    """Probability regressor adapter; finetune requires partial_fit support.
+    """Binary/continuous regressor adapter; finetune requires partial_fit support.
 
     Refit clones the estimator on each cumulative training set. Finetune
     retains the estimator and consumes only newly queried observations.
     """
-    def __init__(self, estimator, mode='refit', pretrained=False):
+    def __init__(self, estimator, mode='refit', pretrained=False, outcome_type='binary', initial_prediction=None):
         from copy import deepcopy
         if mode not in ('refit', 'finetune'):
             raise ValueError('mode must be refit or finetune')
         if mode == 'finetune' and not callable(getattr(estimator, 'partial_fit', None)):
             raise TypeError('finetune requires an estimator with partial_fit')
+        if outcome_type not in ('binary', 'continuous'):
+            raise ValueError('Unknown outcome_type')
+        self.outcome_type = outcome_type
+        self.initial_prediction = (.5 if outcome_type == 'binary' else 0.) if initial_prediction is None else float(initial_prediction)
+        if not np.isfinite(self.initial_prediction):
+            raise ValueError('initial_prediction must be finite')
         self.mode = mode
         self.estimator = deepcopy(estimator)
         self.fitted = pretrained
 
     def predict(self, x):
-        return (np.clip(self.estimator.predict(x), .01, .99)
-                if self.fitted else np.full(len(x), .5))
+        if not self.fitted:
+            return np.full(len(x), self.initial_prediction)
+        values = self.estimator.predict(x)
+        return np.clip(values, .01, .99) if self.outcome_type == 'binary' else values
 
     def update(self, x, y, sample_weight):
         if self.mode == 'refit':
@@ -97,3 +112,34 @@ class SklearnModel:
             self.estimator.partial_fit(x, y, sample_weight=sample_weight)
         self.fitted = True
         return self
+
+
+class RegressionUncertainty:
+    """Squared-error regression learned on held-out (not predictor-training) rows.
+
+    sample_weight may be inverse query probabilities for past active labels.
+    The caller must provide held-out or cross-fitted predictions. A fixed
+    predictor experiment can reuse this model; online predictor changes need
+    new honest residuals, so this class never silently refits on current labels.
+    """
+    def __init__(self, random_state=0, floor=1e-6):
+        if not np.isfinite(floor) or floor <= 0:
+            raise ValueError('floor must be finite and positive')
+        self.floor = floor
+        self.model = RandomForestRegressor(n_estimators=40, min_samples_leaf=15,
+                                            max_depth=5, random_state=random_state, n_jobs=1)
+
+    def fit(self, features, labels, predictions, sample_weight=None):
+        y, f = np.asarray(labels), np.asarray(predictions)
+        if y.ndim != 1 or y.shape != f.shape or len(y) != len(features) or not np.isfinite(y).all() or not np.isfinite(f).all():
+            raise ValueError('Require aligned finite held-out labels and predictions')
+        self.model.fit(features, (y-f)**2, sample_weight=sample_weight)
+        return self
+
+    def predict(self, features):
+        """Conditional squared-error estimate (FTRL's Phi score)."""
+        return np.maximum(self.model.predict(features),self.floor)
+
+    def scores(self, features, predictions=None):
+        """Conditional RMS error for ASI-style fixed-predictor sampling."""
+        return np.sqrt(self.predict(features))

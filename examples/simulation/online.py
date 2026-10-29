@@ -75,8 +75,8 @@ def _probability(design, score, index, queried):
 def active_label(features, *, oracle, target, budget, model=None, update='none',
                  model_factory=None, update_every=100, random_state=None,
                  reference_features=None, min_train=30, prediction_mode='soft', design=None,
-                 update_on='rows'):
-    """Query selected binary outcomes and retain query-time predictions.
+                 update_on='rows', score_fn=None, initial_prediction=None):
+    """Query selected outcomes and retain query-time predictions.
 
     Models expose predict(X) and, for online learning, update(X, y,
     sample_weight). update='none' freezes a supplied model. 'refit' sends
@@ -86,7 +86,12 @@ def active_label(features, *, oracle, target, budget, model=None, update='none',
     update_on='labels' updates as soon as update_every new labels have
     been queried (Algorithm 2), then rescores the remaining rows.
     With model=None, supply model_factory to construct an unfitted adapter;
-    predictions remain .5 until min_train observations include both classes.
+    Binary predictions remain .5 until min_train observations include both
+    classes. Continuous Mean uses initial_prediction (default 0), permits
+    real labels, and needs only min_train observations. Supply an outcome-free
+    score_fn(features, predictions), e.g. an independently trained residual
+    learner. Refresh such a learner with honest residuals if the predictor
+    changes; score_fn is never given current or future outcomes.
     A supplied pretrained model predicts from the first block. Models are
     deep-copied so caller state is preserved. No fit method is called here.
 
@@ -95,7 +100,15 @@ def active_label(features, *, oracle, target, budget, model=None, update='none',
     preserve caller state. budget is an expected count, not a hard cap.
     """
     if not isinstance(target, Mean):
-        raise TypeError('Only the binary Mean target is currently supported')
+        raise TypeError('Only the Mean target is currently supported')
+    continuous = target.outcome_type == 'continuous'
+    if continuous and prediction_mode == 'hard':
+        raise ValueError('Continuous outcomes do not support hard predictions')
+    if continuous and score_fn is None:
+        raise ValueError('Continuous online sampling requires score_fn(features, predictions)')
+    initial_prediction = (0. if continuous else .5) if initial_prediction is None else float(initial_prediction)
+    if not np.isfinite(initial_prediction):
+        raise ValueError('initial_prediction must be finite')
     x = np.array(features, dtype=float, copy=True)
     ref = x if reference_features is None else np.array(reference_features, dtype=float, copy=True)
     if x.ndim != 2 or len(x) < 2 or ref.ndim != 2 or not len(ref) or x.shape[1] != ref.shape[1] or not np.isfinite(x).all() or not np.isfinite(ref).all():
@@ -130,7 +143,7 @@ def active_label(features, *, oracle, target, budget, model=None, update='none',
     design = deepcopy(design)
     rho = budget / len(x)
     uniforms = np.random.default_rng(random_state).random(len(x))
-    predictions = np.full(len(x), .5)
+    predictions = np.full(len(x), initial_prediction)
     probabilities = np.zeros(len(x))
     queried = np.zeros(len(x), dtype=bool)
     observed = np.full(len(x), np.nan)
@@ -140,18 +153,18 @@ def active_label(features, *, oracle, target, budget, model=None, update='none',
     nlab = 0
     def predict(features):
         if not ready:
-            return np.full(len(features), .5)
+            return np.full(len(features), initial_prediction)
         values = np.asarray(model.predict(features), dtype=float)
         if values.shape != (len(features),) or not np.isfinite(values).all():
-            raise ValueError('Model must predict one finite probability per row')
-        if ((values < 0) | (values > 1)).any():
+            raise ValueError('Model must predict one finite prediction per row')
+        if not continuous and ((values < 0) | (values > 1)).any():
             raise ValueError('Model predictions must be probabilities in [0, 1]')
         return values
 
     def try_update(start):
         nonlocal ready, last_update
         idx = np.flatnonzero(queried[:start])
-        if update == 'none' or len(idx) < min_train or len(np.unique(observed[idx])) < 2:
+        if update == 'none' or len(idx) < min_train or (not continuous and len(np.unique(observed[idx])) < 2):
             return False
         train = idx if update == 'refit' else idx[idx >= last_update]
         if not len(train):
@@ -171,8 +184,11 @@ def active_label(features, *, oracle, target, budget, model=None, update='none',
             end = len(x)
         p = predict(x[start:end])
         pref = predict(ref)
-        scores = target.sampling_scores(x[start:end], p)
-        ref_scores = target.sampling_scores(ref, pref)
+        scorer = target.sampling_scores if score_fn is None else score_fn
+        scores = np.asarray(scorer(x[start:end], p), dtype=float)
+        ref_scores = np.asarray(scorer(ref, pref), dtype=float)
+        if scores.shape != p.shape or ref_scores.shape != pref.shape or not np.isfinite(scores).all() or not np.isfinite(ref_scores).all() or (scores < 0).any() or (ref_scores < 0).any():
+            raise ValueError('score_fn must return aligned finite nonnegative scores')
         design.calibrate(ref_scores, rho)
         predictions[start:end] = p
         stop = end
@@ -184,8 +200,8 @@ def active_label(features, *, oracle, target, budget, model=None, update='none',
             queried[t] = uniforms[t] < pi
             if queried[t]:
                 label = float(oracle(t))
-                if not np.isfinite(label) or label not in (0., 1.):
-                    raise ValueError('Mean active labeling currently requires binary oracle labels')
+                if not np.isfinite(label) or (not continuous and label not in (0., 1.)):
+                    raise ValueError('Oracle must return finite labels (0/1 in binary mode)')
                 observed[t] = label
                 nlab += 1
                 pending += 1

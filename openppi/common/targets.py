@@ -12,13 +12,22 @@ class Target(ABC):
 
 @dataclass(frozen=True)
 class Mean(Target):
-    """Population mean of binary labels, with ASI uncertainty sampling.
+    """Population mean; outcome_type controls only the default query score.
 
-    Scores are the original binary ASI proxy 2*min(f, 1-f). They do not
-    observe |Y-f| before querying and are not a universal optimal rule.
-    Other targets require their own sampling scores and variance estimator.
+    Binary mode preserves the ASI proxy 2*min(f,1-f). Continuous mode
+    requires explicit outcome-free scores via select_for_labeling(scores=...).
+    Inference formulas support real outcomes in either mode where the method
+    permits them; no classification loss is imposed on the mean estimand.
     """
+    outcome_type: str = 'binary'
+
+    def __post_init__(self):
+        if self.outcome_type not in ('binary', 'continuous'):
+            raise ValueError("outcome_type must be 'binary' or 'continuous'")
+
     def sampling_scores(self, features, predictions):
+        if self.outcome_type == 'continuous':
+            raise ValueError('Continuous Mean requires explicit regression uncertainty scores via scores=')
         p = np.asarray(predictions, dtype=float)
         if p.ndim != 1 or len(p) != len(features) or not np.isfinite(p).all() or not ((p >= 0) & (p <= 1)).all():
             raise ValueError('Mean sampling requires aligned binary probabilities')

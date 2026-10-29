@@ -38,7 +38,7 @@ def cube_variance(residuals, balancing, propensities, n, max_iter=100, tol=1e-6)
 
 
 class BAI(InferenceMethod):
-    """Binary mean inference from cube-balanced queries.
+    """Real-valued mean inference from cube-balanced queries.
 
     The point estimate is the GD (AIPW) mean, as in ASI. The standard error
     is the cube design variance plus, by default, the Hajek-weighted label

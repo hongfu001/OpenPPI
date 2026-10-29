@@ -47,7 +47,7 @@ class ActiveData:
 
 @dataclass(frozen=True)
 class PPIData:
-    """Disjoint iid labeled and unlabeled samples for binary mean PPI.
+    """Disjoint iid labeled and unlabeled samples for real-valued mean PPI.
 
     The predictor must be trained independently of both inference samples.
     Only the labeled sample needs observed outcomes. Arrays are snapshots.
@@ -61,14 +61,10 @@ class PPIData:
             array = np.array(getattr(self, name), dtype=float, copy=True)
             if array.ndim != 1 or len(array) < 2 or not np.isfinite(array).all():
                 raise ValueError('PPI requires finite vectors with at least two rows per sample')
-            if not ((array >= 0) & (array <= 1)).all():
-                raise ValueError('Binary Mean PPI requires probabilities in [0, 1]')
             array.setflags(write=False)
             object.__setattr__(self, name, array)
         if len(self.labels) != len(self.labeled_predictions):
             raise ValueError('Labels and labeled predictions must align')
-        if not np.isin(self.labels, [0., 1.]).all():
-            raise ValueError('Mean PPI currently requires binary labels')
 
 
 

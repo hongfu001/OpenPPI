@@ -2,6 +2,8 @@ from dataclasses import dataclass
 
 @dataclass
 class Config:
+    outcome_type: str = 'binary'
+    initial_prediction: float = .5
     n: int = 2000
     reps: int = 100
     rho: float = .2

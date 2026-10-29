@@ -89,6 +89,8 @@ def run_asi(c, rep, policy, data, ref, truth):
 
 
 def validate(c, policies):
+    if c.outcome_type != 'binary':
+        raise ValueError('coverage.py is the binary benchmark; use regression.py for continuous outcomes')
     if c.n < 2 or c.reps < 1 or c.ref_size < 1 or c.truth_size < 2:
         raise ValueError('Require n>=2, reps>=1, ref-size>=1, truth-size>=2')
     if not (0 < c.rho < 1 and 0 < c.alpha < 1 and 0 < c.asi_tau <= 1):

@@ -19,7 +19,7 @@ def tuned_lambda(labels, labeled_predictions, unlabeled_predictions):
 
 
 class TwoSample(InferenceMethod):
-    """Binary mean mean(lam f_unlabeled) + mean(Y - lam f)_labeled from independent samples.
+    """Real-valued mean mean(lam f_unlabeled) + mean(Y - lam f)_labeled from independent samples.
 
     lam=1 is PPI (Angelopoulos et al. 2023), lam='tuned' is PPI++ with the
     plug-in tuned_lambda (Angelopoulos, Duchi & Zrnic 2023), lam=0 is the

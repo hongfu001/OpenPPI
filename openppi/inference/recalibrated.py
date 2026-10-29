@@ -38,7 +38,7 @@ def three_folds(n, rng):
 
 
 class RePPI(InferenceMethod):
-    """Binary mean RePPI, Algorithm 1 with the squared loss, as in the official reppi.py.
+    """Real-valued mean RePPI, Algorithm 1 with the squared loss, as in the official reppi.py.
 
     In each of three rotations one labeled fold gives theta_0 (for the mean the
     score is theta_0 - m(f), so only m matters), one fits m(f) ~ E[Y | f] with
@@ -60,6 +60,7 @@ class RePPI(InferenceMethod):
     def _estimate(self, data, target):
         y, f, f_u = data.labels, data.labeled_predictions, data.unlabeled_predictions
         n, big_n = len(y), len(f_u)
+        continuous = target.outcome_type == 'continuous' or not np.isin(y, [0., 1.]).all()
         if n < 6:
             raise ValueError('RePPI needs at least two labeled rows per fold')
         folds = three_folds(n, np.random.default_rng(self.random_state))
@@ -71,8 +72,12 @@ class RePPI(InferenceMethod):
             a = np.cov(y[infer], m_k)[0, 1] / spread / (1 + n / big_n) if spread > 0 else 0.
             estimates.append(y[infer].mean() + a * (m_u.mean() - m_k.mean()))
             weights.append(float(a))
-            labeled_fit[infer] = a * m_k
-            unlabeled_fit += a * m_u / 3
+            # Fold-specific constants cancel in the mean correction. Center
+            # them for real-valued outcomes so fold-varying weights cannot
+            # make the SE depend on the arbitrary origin of the outcome scale.
+            center = m_k.mean() if continuous else 0.
+            labeled_fit[infer] = a * (m_k - center)
+            unlabeled_fit += a * (m_u - center) / 3
         point = float(np.mean(estimates))
         residuals = y - labeled_fit
         se = float(np.sqrt(residuals.var(ddof=1) / n + unlabeled_fit.var(ddof=1) / big_n))
@@ -82,5 +87,6 @@ class RePPI(InferenceMethod):
             'unlabeled_count': big_n,
             'fold_estimates': [float(e) for e in estimates],
             'fold_weights': weights,
-            'variance_design': 'cross_fit_three_folds',
+            'variance_design': ('cross_fit_three_folds_centered' if continuous
+                                else 'cross_fit_three_folds'),
         }

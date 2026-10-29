@@ -6,7 +6,7 @@ from ..common.stats import ipw_correct
 
 
 class IPW(InferenceMethod):
-    """Binary mean inference from predictable Bernoulli queries.
+    """Real-valued mean inference from predictable Bernoulli queries.
 
     The corrected values are f + R/pi (Y - f); the estimate is their mean
     and the SE their standard deviation over sqrt(n). Rows labeled with
