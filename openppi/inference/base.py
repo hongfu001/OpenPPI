@@ -15,15 +15,18 @@ class InferenceMethod(ABC):
         self.interval = interval
 
     def __call__(self, data, *, target, alpha=.05):
-        if not isinstance(data, self.data_type):
-            raise TypeError(f'{self.name} requires {self.data_type.__name__}')
         if not isinstance(target, self.supported_targets):
             raise TypeError(f'{self.name} does not support target {type(target).__name__}')
+        required = next((dtype for kind, dtype in getattr(self, 'target_data_types', {}).items()
+                         if isinstance(target, kind)), self.data_type)
+        if not isinstance(data, required):
+            raise TypeError(f'{self.name} requires {required.__name__} for {type(target).__name__}')
         if not 0 < alpha < 1:
             raise ValueError('alpha must be in (0, 1)')
         point, se, diagnostics = self._estimate_with_alpha(data, target, alpha)
         ci = self.interval(point, se, alpha, values=diagnostics.pop('values', None))
-        return InferenceResult(point, se, ci, alpha, self.name, diagnostics)
+        covariance = diagnostics.pop('covariance', None)
+        return InferenceResult(point, se, ci, alpha, self.name, diagnostics, covariance=covariance)
 
     def _estimate_with_alpha(self, data, target, alpha):
         """Allow finite-sample estimators to depend on the requested error rate."""

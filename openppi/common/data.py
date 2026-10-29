@@ -215,3 +215,28 @@ class StratifiedPPIData:
             raise ValueError('Population weights must be positive, finite and sum to one')
         object.__setattr__(self, 'strata', MappingProxyType(strata))
         object.__setattr__(self, 'weights', MappingProxyType(weights))
+
+
+@dataclass(frozen=True)
+class RegressionData(PPIData):
+    """Two independent samples with covariates V defining the OLS projection.
+
+    Prediction-model features Z are intentionally not inferred from V: train
+    f(Z) independently and pass its aligned predictions. Covariates must NOT
+    include a constant column when the target adds an intercept. Rank and
+    sample-size checks depend on the target and are performed at inference.
+    """
+    labeled_covariates: np.ndarray
+    unlabeled_covariates: np.ndarray
+
+    def __post_init__(self):
+        super().__post_init__()
+        for name, count in (('labeled_covariates',len(self.labels)),
+                            ('unlabeled_covariates',len(self.unlabeled_predictions))):
+            x=np.array(getattr(self,name),dtype=float,copy=True)
+            if x.ndim != 2 or len(x) != count or not np.isfinite(x).all():
+                raise ValueError('Regression covariates must be aligned finite two-dimensional matrices')
+            x.setflags(write=False)
+            object.__setattr__(self,name,x)
+        if self.labeled_covariates.shape[1] != self.unlabeled_covariates.shape[1]:
+            raise ValueError('Both samples must have the same covariate columns in the same order')

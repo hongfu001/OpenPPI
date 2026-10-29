@@ -1,7 +1,8 @@
 """Two-sample prediction-powered estimators: PPI (lam = 1) and PPI++ (tuned lam)."""
 import numpy as np
 from .base import InferenceMethod
-from ..common.data import PPIData
+from ..common.data import PPIData, RegressionData
+from ..common.targets import Mean, LinearRegression
 
 
 def tuned_lambda(labels, labeled_predictions, unlabeled_predictions):
@@ -30,6 +31,8 @@ class TwoSample(InferenceMethod):
     lam=1 and 'pooled' otherwise.
     """
     data_type = PPIData
+    supported_targets = (Mean, LinearRegression)
+    target_data_types = {LinearRegression: RegressionData}
 
     def __init__(self, lam=1.0, variance=None, **kwargs):
         super().__init__(**kwargs)
@@ -43,6 +46,9 @@ class TwoSample(InferenceMethod):
         self.name = 'PPI' if lam == 1 and variance == 'unlabeled' else 'PPI++'
 
     def _estimate(self, data, target):
+        if isinstance(target, LinearRegression):
+            from .linear import two_sample_regression
+            return two_sample_regression(data, target, self.lam)
         labels, f_labeled, f_unlabeled = data.labels, data.labeled_predictions, data.unlabeled_predictions
         lam = tuned_lambda(labels, f_labeled, f_unlabeled) if self.lam == 'tuned' else float(self.lam)
         residuals = labels - lam * f_labeled

@@ -14,7 +14,7 @@ OpenPPI is a Python library for prediction-powered inference: valid confidence i
 
 # Overview
 
-OpenPPI targets population means with binary or continuous outcomes. RG/MLE require binary labels and judgments; the current cluster and multi-source data containers also retain their binary-label validation. It implements the following methods. The last column is the name in the method registry, `openppi.get_method(name)`.
+OpenPPI supports population means with binary or continuous outcomes, plus an initial linear-regression coefficient target for OLS, PPI, PPI++ and PSPA. RG/MLE require binary labels and judgments; the current cluster and multi-source data containers also retain their binary-label validation. It implements the following methods. The last column is the name in the method registry, `openppi.get_method(name)`.
 
 ## Prediction-Powered Inference
 
@@ -188,3 +188,27 @@ python examples/simulation/regression.py --reps 100 --out examples/simulation/re
 Given-label methods share independently trained predictions, labeled data and unlabeled data: Label-only, PPI, PPI++, PSPA, RePPI, CalPPI and LinearCalPPI. The selection group compares Uniform+IPW, ASI, RASI, BAI, FTRL and StratPPI with their respective sampling rules. StratPPI collects fresh conditional samples under a pilot-planned stratified allocation. Summaries report coverage, width, bias, RMSE and actual labels, with predictor-training, error-pilot and burn-in label costs shown separately. Default selection budgets are expected counts for Bernoulli designs; no equality of total labeling cost is implied.
 
 `PPIData` accepts finite real outcomes and predictions. Use `Mean(outcome_type='continuous')` for active regression tasks, and pass explicit nonnegative `scores=`; the binary probability-uncertainty rule is never applied implicitly in continuous mode. `SimulationLearner` and `SklearnModel` return raw predictions when `outcome_type='continuous'`. See [method notes](docs/methods.md#continuous-response-mean-simulation) for the data-generating model, score choices and online interface.
+
+## Linear-regression M-estimator
+
+The first coefficient-inference stage supports **OLS, PPI, PPI++ and PSPA**, while preserving the existing mean interface. Target covariates V define the population least-squares projection; the independent predictor may use richer features Z. The interfaces keep those roles separate:
+
+```python
+from openppi import LinearRegression, RegressionData, get_method
+
+data = RegressionData(
+    labels=y_labeled, labeled_predictions=f_labeled,
+    unlabeled_predictions=f_unlabeled,
+    labeled_covariates=V_labeled, unlabeled_covariates=V_unlabeled)
+result = get_method('PPI++').inference(
+    data, target=LinearRegression(fit_intercept=True, focus=1), alpha=.05)
+print(result.estimate, result.covariance, result.confidence_interval)
+```
+
+Covariates exclude the intercept. `focus` is a zero-based coordinate **after** adding the intercept, so `focus=1` targets the first slope. Intervals are pointwise, not simultaneous. For the supported-target/data mapping, inspect `get_method('PPI++').target_data_types`. Other registered methods do not yet advertise regression support.
+
+```sh
+python examples/simulation/regression.py --target linear --focus 1 --reps 100
+```
+
+The [coefficient notebook](examples/simulation/linear_regression.ipynb) shows coefficients, covariance, the focus-coefficient comparison and all-coefficient supplement. This stage implements the squared-loss M-estimator rather than a general loss-optimization framework. See [derivations and reference differences](docs/methods.md#linear-regression-m-estimator-first-stage).

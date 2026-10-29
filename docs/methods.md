@@ -18,6 +18,7 @@ openppi/                     # installable core (NumPy and SciPy only)
 ├── inference/               # estimators and intervals: one file per estimator
 │   ├── base.py              # InferenceMethod
 │   ├── ipw.py               # IPW: f + R/pi (Y - f) (ASI, RASI, FTRL)
+│   ├── linear.py            # OLS and target-specific regression implementations
 │   ├── two_sample.py        # TwoSample(lam=1 | 'tuned' | number), tuned_lambda (PPI, PPI++)
 │   ├── misclassification.py # RoganGladen, MisclassificationMLE (hard binary judges)
 │   ├── stratified.py        # StratPPI (known population weights, within-stratum corrections)
@@ -32,6 +33,7 @@ openppi/                     # installable core (NumPy and SciPy only)
 │   ├── data.py              # ActiveData, PPIData, ClusteredPPIData, MultiPPIData, BalancedActiveData; split()
 │   ├── targets.py           # Target, Mean; the single definition of sampling scores
 │   ├── results.py           # InferenceResult
+│   ├── regression.py        # regression scores, checked design matrices and sandwich algebra
 │   └── stats.py             # shared formulas: ipw_correct, wald_interval, ledoit_wolf, multi_weights
 └── methods.py               # registry: Recipe, METHODS, get_method (composition only)
 
@@ -543,3 +545,52 @@ Error-pilot labels never train the mean predictor and inference labels never tra
 **Online interface.** `online.active_label` supports continuous predictions/labels via `Mean(outcome_type='continuous')` plus `score_fn(features,predictions)`. It rejects hard-threshold mode, uses an explicit `initial_prediction` (default 0 in continuous mode), and starts updating once `min_train` labels are available without requiring two distinct classes. Existing inverse-propensity training weights and immutable query-time history are preserved. The callback never receives current/future labels. If the mean predictor is updated, an error learner must also be refreshed using held-out/cross-fitted historical residuals; blindly reusing a score model for an obsolete predictor is not an implemented adaptive procedure. The new repeated experiment keeps the predictor fixed, so no claim of a fully benchmarked continuous online error-learning algorithm is made.
 
 **Validation.** `tests/test_regression.py` checks real-valued data and RG/MLE rejection, untruncated predictions, exact DGP moments and independent judge/human noise, explicit continuous sampling scores, shift-equivariant points/intervals, continuous online single-valued outcomes and history, end-to-end method groups/costs/reproducibility, and coverage in both noise settings. Existing binary tests are run alongside these new checks.
+
+## Linear-regression M-estimator: first stage
+
+The supported regression targets are currently **OLS, PPI, PPI++ and PSPA**. This is the interface/foundation stage of the larger regression roadmap; RePPI, FAB-PPI, StratPPI, Cluster-PPI, ASI, RASI and BAI retain mean-only support. Their regression calibration, nuisance handling, cluster dependence and sampling-design covariance must be implemented separately. A successful mean run is not validation of those regression extensions. No general-loss optimization framework is introduced here.
+
+**Statistical target and data.** `LinearRegression(fit_intercept=True, focus=1)` defines the population projection `beta = argmin_b E[(Y-V.T@b)**2]`, equivalently `E[V*(V.T@beta-Y)]=0`. The conditional mean need not be linear; sandwich inference permits heteroskedasticity and nonlinear misspecification under iid sampling and finite moments. The target covariates V and prediction features Z must be distinguished: `RegressionData` subclasses `PPIData`, adding aligned finite matrices `labeled_covariates` and `unlabeled_covariates`. Prediction-model features are not guessed from these columns. Train a fixed f(Z) on independent data and pass aligned response-scale predictions. All four methods consume this common two-sample record; OLS reads only its labeled part, although the shared container still requires an unlabeled sample.
+
+Covariates are two-dimensional and exclude the intercept when `fit_intercept=True`. `focus` is a zero-based index after intercept insertion; default 1 denotes the first slope, and None tunes the total coefficient-variance trace where scalar tuning is supported. The number of labeled observations must exceed the number of coefficients. Gram matrices/Jacobians must be full rank with condition number at most `max_condition` (default 1e12); there is no silent pseudoinverse or regularized estimand. Error messages report rank/conditioning, and successful results include condition diagnostics and coefficient names.
+
+**Shared result/lifecycle.** `InferenceResult` retains scalar outputs and covariance=None for means. Regression estimates and SEs are length-p read-only arrays, `covariance` is a symmetric p-by-p matrix, and `confidence_interval` is `(lower_vector, upper_vector)`. The shared `wald_interval` applies a normal quantile coordinate by coordinate; these are pointwise intervals, with no familywise guarantee. Custom interval callbacks receive vector points/SEs. `Recipe.supported_targets` and `Recipe.target_data_types` expose each method's actual dispatch; the legacy `Recipe.data_type` remains its default data type. `common/regression.py` provides checked matrix algebra, scores and independent-sample sandwich building blocks.
+
+Write `s(V,t;b)=V*(V.T@b-t)`, `Q_L=mean_L(V V.T)`, `Q_U=mean_U(V V.T)`, and `Q_pool=(n Q_L+N Q_U)/(n+N)`. Empirical covariance matrices below are centered with ddof=1, consistent with OpenPPI's mean convention.
+
+**OLS.** Solve `Q_L b=mean_L(VY)` and use `Q_L^-1 Cov_L(s(V,Y;b)) Q_L^-T / n`. This is an asymptotic heteroskedasticity-robust sandwich; its finite-sample normalization differs from HC0's ddof=0 convention. It is registered as `OLS` and only supports `LinearRegression`.
+
+**PPI/PPI++.** The regression branch of `TwoSample` solves the squared-loss estimating equation exactly:
+
+```text
+0 = mean_L[s(V,Y;b)-lambda*s(V,f;b)] + lambda*mean_U[s(V,f;b)]
+A = (1-lambda)*Q_L + lambda*Q_U
+rhs = mean_L(VY) + lambda*(mean_U(Vf)-mean_L(Vf))
+b = solve(A, rhs)
+Cov(b) = A^-1 [Cov_L(s_Y-lambda*s_f)/n + lambda²*Cov_U(s_f)/N] A^-T.
+```
+
+PPI fixes lambda=1; OLS is recovered at lambda=0. PPI++ estimates lambda at the consistent labeled OLS pilot, using the pooled Gram matrix for curvature and pooling both samples' imputed scores for variance. Let `g_Y=Q_pool^-1*s_Y`, with g_f similarly defined in each sample. For focus coordinate j, `lambda=clip(Cov_L(g_Yj,g_fj)/[(1+n/N)*Var_pool(g_fj)],0,1)`. For focus=None, replace the numerator by the trace of cross-covariance and denominator by the covariance trace. Clipping guarantees convexity of the finite-sample loss; this differs from the existing mean branch's unrestricted scalar tuning. A fixed lambda outside [0,1] is accepted only if the resulting Hessian is positive definite. The tuning is a consistent population-variance plug-in, not a promise to minimize every finite-sample interval evaluated at its resulting coefficient.
+
+The inspected official [ppi_py](https://github.com/aangelopoulos/ppi_py) commit `3d1f0c668444907b39bd045cb9dd38e479ce7dd6` instead computes a sum of two OLS fits for the point estimate, uses pooled curvature in its SE, and uses different pilot/normalization choices for tuning. Those are first-order related but need not equal the exact rectified-loss solution in finite samples. Tests compare point estimates and intervals where the empirical Gram matrices agree (including fixed weights 0, .4, 1), and separately verify the estimating equation on unmatched designs. They do not claim that all focused tuned runs reproduce the package byte for byte.
+
+**PSPA.** The regression branch follows the official [pspa_y(method="ols")](https://github.com/qlu-lab/pspa) at commit `8e77b124d58b884730484d1923d909a61ed70025`: start with labeled OLS b_C, form score covariance matrices `M2=Cov_L(s_f)`, `M3=Cov_U(s_f)`, `M4=Cov_L(s_Y,s_f)` at b_C, and set
+
+```text
+w_j = clip(diag(Q_L^-1 M4 Q_L^-T)_j
+           / diag(Q_L^-1 (M2+n/N*M3) Q_L^-T)_j, 0, 1)
+b = b_C - Q_pool^-1 [mean_L(s_Y) + diag(w)*(mean_U(s_f)-mean_L(s_f))].
+```
+
+Zero-denominator components use weight zero. This is the official one-step estimator, not the exact root of the rectified-loss equation. PSPA retains its published vector weighting rule; `focus` selects a reporting coordinate and does not replace that rule with scalar focused tuning. Full coefficient covariance is estimated using actual weighted scores at b:
+
+```text
+Cov(b) = Q_pool^-1 [Cov_L(s_Y-diag(w)*s_f)/n
+                    + Cov_U(diag(w)*s_f)/N] Q_pool^-T.
+```
+
+This has both cross-terms `-Cov(s_Y,s_f)*diag(w) - diag(w)*Cov(s_f,s_Y)`. The official R code's multidimensional `-2*diag(w)*M4` is generally nonsymmetric; merely symmetrizing that expression does not give the covariance of the actual weighted scores. The implementation uses the latter, a symmetric positive semidefinite sandwich with the same first-order basis, and documents the discrepancy instead of presenting a nonsymmetric covariance as valid. Weights and one-step coefficients are checked against official R outputs on unmatched designs; covariance is separately checked against the correct two-cross-term expression. This does not establish a general finite-sample efficiency guarantee for the paper's coordinate-weight rule under arbitrary correlated designs.
+
+**Simulation and validation.** The existing continuous generator now supplies exact projection coefficients `(1,.8,-.6,0,0,0)` for V=(intercept,X1,...,X5): its centered quadratic term is orthogonal to all five Gaussian covariates. The predictor uses Z=(X,judges), not V alone. `regression.py --target linear --focus 1 --reps 100` runs independently trained fixed-predictor experiments in both noise settings using shared labeled/unlabeled samples across the four methods. `summary.csv` is the focus-coordinate main table; `all_coefficients.csv` contains all coordinates. `per_rep.csv` retains every coefficient and a JSON covariance row so the full covariance can be reconstructed for each fit, with label costs and prediction weights. `config.json` records target, focus, intercept choice and the true coefficient vector. `linear_regression.ipynb` shows a complete fit and both main and supplementary results. Existing `regression.py` without a target flag still runs mean experiments.
+
+`tests/test_linear.py` verifies labeled OLS and robust covariance, official PPI fixtures on matched designs, the exact loss equation on unmatched designs, official PSPA weights/points, symmetric covariance cross-terms, focused tuning, intercept/translation behavior, intercept-only reduction to means, rank and shape validation, vector intervals/snapshots, supported-target metadata, shared V/Z roles in the repeated experiment, and coefficient-wise coverage under a nonlinear conditional mean. `tests/fixtures/generate_linear.py` regenerates the pinned official fixtures. The mean regression and binary tests remain part of the full suite.

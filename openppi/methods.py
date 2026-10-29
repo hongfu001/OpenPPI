@@ -11,7 +11,7 @@ from functools import partial
 from .common.data import (ActiveData, BalancedActiveData, ClusteredPPIData, MultiPPIData,
                           PPIData, StratifiedPPIData)
 from .inference import (BAI, IPW, CalibratedPPI, ClusterRobustPPI, FABPPI, MisclassificationMLE, MultiPPI,
-                        PSPA, RePPI, RoganGladen, StratPPI, TwoSample)
+                        OLS, PSPA, RePPI, RoganGladen, StratPPI, TwoSample)
 from .sampling import (BalancedDesign, FTRLDesign, RobustDesign, Uncertainty, multi_allocate,
                        stratified_allocate)
 
@@ -24,8 +24,18 @@ class Recipe:
     data_type: type
     reference: str
 
+    @property
+    def supported_targets(self):
+        return self.inference.supported_targets
+
+    @property
+    def target_data_types(self):
+        overrides = getattr(self.inference, 'target_data_types', {})
+        return {target: overrides.get(target,self.data_type) for target in self.supported_targets}
+
 
 METHODS = {recipe.name: recipe for recipe in (
+    Recipe('OLS', None, OLS(), OLS.data_type, 'Ordinary least squares'),
     Recipe('PPI', None, TwoSample(lam=1.0), PPIData,
            'Prediction-Powered Inference'),
     Recipe('PPI++', None, TwoSample(lam='tuned'), PPIData,

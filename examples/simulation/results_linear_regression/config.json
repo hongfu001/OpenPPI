@@ -1,0 +1,28 @@
+{
+  "reps": 100,
+  "n": 2000,
+  "train_size": 400,
+  "pilot_size": 200,
+  "budget": 400,
+  "burn_in": 100,
+  "predictor": "rf",
+  "seed": 20261029,
+  "alpha": 0.05,
+  "robust_constraint": 0.03,
+  "noises": [
+    "homoskedastic",
+    "heteroskedastic"
+  ],
+  "truth": [
+    1.0,
+    0.8,
+    -0.6,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "outcome_type": "continuous",
+  "target": "linear",
+  "focus": 1,
+  "fit_intercept": true
+}

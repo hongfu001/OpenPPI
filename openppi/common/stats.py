@@ -17,10 +17,13 @@ def ipw_correct(predictions, labels, queried, propensities):
 def wald_interval(estimate, standard_error, alpha=0.05, values=None):
     if not 0 < alpha < 1:
         raise ValueError('alpha must be in (0, 1)')
-    if not np.isfinite(estimate) or not np.isfinite(standard_error) or standard_error < 0:
-        raise ValueError('Require a finite estimate and nonnegative finite SE')
-    half = float(norm.ppf(1 - alpha / 2) * standard_error)
-    return float(estimate - half), float(estimate + half)
+    point, se = np.asarray(estimate), np.asarray(standard_error)
+    if point.shape != se.shape or not np.isfinite(point).all() or not np.isfinite(se).all() or (se < 0).any():
+        raise ValueError('Require aligned finite estimates and nonnegative finite SEs')
+    half = norm.ppf(1 - alpha / 2) * se
+    if point.ndim == 0:
+        return float(point - half), float(point + half)
+    return point - half, point + half
 
 
 

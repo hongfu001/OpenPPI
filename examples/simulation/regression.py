@@ -58,13 +58,8 @@ def rng_for(c, case, rep, stream):
     return np.random.default_rng(np.random.SeedSequence([c.seed,case,rep,stream]))
 
 
-def run_rep(c, noise, rep):
-    case=('homoskedastic','heteroskedastic').index(noise)
-    dgp=RegressionDGP(noise=noise)
-    train=dgp.draw(c.train_size,rng_for(c,case,rep,0))
-    pilot=dgp.draw(c.pilot_size,rng_for(c,case,rep,1))
-    pool=dgp.draw(c.n,rng_for(c,case,rep,2))
-    seed=int(rng_for(c,case,rep,3).integers(2**31))
+def fit_predictor(c, train, dgp, seed):
+    """Shared independently trained f(Z); inference V is chosen separately."""
     if c.predictor=='oracle':
         predict=lambda x: dgp.conditional_mean(x[:,:5])
     elif c.predictor=='judge':
@@ -73,6 +68,17 @@ def run_rep(c, noise, rep):
         model=SimulationLearner(Config(learner=c.predictor,outcome_type='continuous',initial_prediction=1.),seed)
         model.update(train['features'],train['y'],np.ones(c.train_size))
         predict=model.predict
+    return predict
+
+
+def run_rep(c, noise, rep):
+    case=('homoskedastic','heteroskedastic').index(noise)
+    dgp=RegressionDGP(noise=noise)
+    train=dgp.draw(c.train_size,rng_for(c,case,rep,0))
+    pilot=dgp.draw(c.pilot_size,rng_for(c,case,rep,1))
+    pool=dgp.draw(c.n,rng_for(c,case,rep,2))
+    seed=int(rng_for(c,case,rep,3).integers(2**31))
+    predict=fit_predictor(c,train,dgp,seed)
     x,y=pool['features'],pool['y']
     f,pilot_f=predict(x),predict(pilot['features'])
     target=Mean(outcome_type='continuous')
@@ -189,15 +195,27 @@ def main():
     for name,field in RegressionConfig.__dataclass_fields__.items():
         parser.add_argument('--'+name.replace('_','-'),type=type(field.default),default=field.default)
     parser.add_argument('--noise',choices=('both','homoskedastic','heteroskedastic'),default='both')
-    parser.add_argument('--out',type=Path,default=Path(__file__).parent/'results_regression')
+    parser.add_argument('--out',type=Path,default=None)
+    parser.add_argument('--target',choices=('mean','linear'),default='mean')
+    parser.add_argument('--focus',type=int,default=1)
+    parser.add_argument('--no-intercept',action='store_true')
     args=parser.parse_args()
     c=RegressionConfig(**{key:getattr(args,key) for key in RegressionConfig.__dataclass_fields__})
     noises=('homoskedastic','heteroskedastic') if args.noise=='both' else (args.noise,)
-    frame,summary=run_experiment(c,noises)
+    if args.target == 'linear':
+        from linear_regression import run_linear_experiment
+        frame,summary=run_linear_experiment(c,noises,fit_intercept=not args.no_intercept,focus=args.focus)
+    else:
+        frame,summary=run_experiment(c,noises)
+    if args.out is None:
+        args.out=Path(__file__).parent/('results_regression' if args.target=='mean' else 'results_linear_regression')
     args.out.mkdir(parents=True,exist_ok=True)
     frame.to_csv(args.out/'per_rep.csv',index=False)
+    if args.target=='linear':
+        summary.to_csv(args.out/'all_coefficients.csv',index=False)
+        summary=summary[summary.coordinate==args.focus]
     summary.to_csv(args.out/'summary.csv',index=False)
-    (args.out/'config.json').write_text(json.dumps({**asdict(c),'noises':noises,'truth':1.,'outcome_type':'continuous'},indent=2)+'\n')
+    (args.out/'config.json').write_text(json.dumps({**asdict(c),'noises':noises,'truth':1. if args.target=='mean' else RegressionDGP.projection_coefficients(not args.no_intercept).tolist(),'outcome_type':'continuous','target':args.target,'focus':args.focus if args.target=='linear' else None,'fit_intercept':not args.no_intercept},indent=2)+'\n')
     print(summary.to_string(index=False))
 
 

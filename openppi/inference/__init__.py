@@ -7,10 +7,11 @@ from .cluster import ClusterRobustPPI
 from .fab import FABPPI
 from .ipw import IPW
 from .misclassification import MisclassificationMLE, RoganGladen
+from .linear import OLS
 from .multi import MultiPPI
 from .recalibrated import BinnedMean, RePPI
 from .stratified import StratPPI
 from .two_sample import TwoSample
 
 __all__ = ['InferenceMethod', 'BAI', 'ClusterRobustPPI', 'FABPPI', 'IPW', 'MultiPPI', 'BinnedMean', 'RePPI',
-           'CalibratedPPI', 'StratPPI', 'TwoSample', 'PSPA', 'RoganGladen', 'MisclassificationMLE']
+           'OLS', 'CalibratedPPI', 'StratPPI', 'TwoSample', 'PSPA', 'RoganGladen', 'MisclassificationMLE']

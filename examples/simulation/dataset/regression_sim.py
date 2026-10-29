@@ -54,3 +54,13 @@ class RegressionDGP:
     def truth():
         """Exact E[Y]; centered Gaussian covariates and noise contribute zero."""
         return 1.
+
+    @staticmethod
+    def projection_coefficients(fit_intercept=True):
+        """Exact OLS projection on X: the centered quadratic is orthogonal to X.
+
+        This is the population projection, despite a misspecified linear
+        conditional-mean model. It is unrelated to the judge-feature slopes.
+        """
+        slopes = np.array([.8, -.6, 0., 0., 0.])
+        return np.r_[1., slopes] if fit_intercept else slopes
