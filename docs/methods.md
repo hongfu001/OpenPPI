@@ -393,7 +393,7 @@ Planned next: configuration splitting, Quantile/OLS and continuous-label Mean, G
 
 ## Post-prediction adaptive inference (PSPA)
 
-[Assumption-Lean and Data-Adaptive Post-Prediction Inference](https://arxiv.org/abs/2311.14220), Miao, Miao, Wu, Zhao & Lu (2024). The implementation specializes Section 2.1 and Algorithm 1 to the project's binary mean target, checked against the official [pspa_y(method="mean")](https://github.com/qlu-lab/pspa/blob/main/R/main.R) and [optim_weights, optim_est, Sigma_cal](https://github.com/qlu-lab/pspa/blob/main/R/utils.R), commit `8e77b124d58b884730484d1923d909a61ed70025`. The Python implementation evaluates the scalar formulas using NumPy; no R runtime dependency or vendored R code is added.
+[Assumption-Lean and Data-Adaptive Post-Prediction Inference](https://jmlr.org/papers/v26/24-0056.html), Miao, Miao, Wu, Zhao & Lu, Journal of Machine Learning Research 26(179):1–31 (2025). The implementation specializes Section 2.1 and Algorithm 1 to the project's binary mean target, checked against the official [pspa_y(method="mean")](https://github.com/qlu-lab/pspa/blob/main/R/main.R) and [optim_weights, optim_est, Sigma_cal](https://github.com/qlu-lab/pspa/blob/main/R/utils.R), commit `8e77b124d58b884730484d1923d909a61ed70025`. The Python implementation evaluates the scalar formulas using NumPy; no R runtime dependency or vendored R code is added.
 
 ```python
 from openppi import Mean, get_method

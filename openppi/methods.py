@@ -28,7 +28,7 @@ METHODS = {recipe.name: recipe for recipe in (
     Recipe('PPI++', None, TwoSample(lam='tuned'), PPIData,
            'Angelopoulos, Duchi & Zrnic, Ann. Appl. Stat.'),
     Recipe('PSPA', None, PSPA(), PPIData,
-           'Miao, Miao, Wu, Zhao & Lu, Assumption-Lean and Data-Adaptive Post-Prediction Inference, 2024'),
+           'Miao, Miao, Wu, Zhao & Lu, Assumption-Lean and Data-Adaptive Post-Prediction Inference, JMLR 26(179):1–31, 2025'),
     Recipe('RePPI', None, RePPI(), PPIData,
            'Ji, Lei & Zrnic, Predictions as Surrogates, Biometrika'),
     Recipe('FAB-PPI', None, FABPPI(), PPIData,

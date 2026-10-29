@@ -1,4 +1,4 @@
-"""PSPA mean inference (Miao et al., arXiv:2311.14220, Algorithm 1)."""
+"""PSPA mean inference (Miao et al., JMLR 26(179):1–31, 2025; Algorithm 1)."""
 import numpy as np
 
 from .base import InferenceMethod
