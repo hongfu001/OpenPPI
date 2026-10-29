@@ -1,4 +1,4 @@
-"""Binary judge correction: Rogan--Gladen and joint MLE (Chen et al. 2026)."""
+"""Binary judge correction: Rogan--Gladen and joint MLE (Chen et al., ICML 2026)."""
 import numpy as np
 from scipy.special import expit, logit
 from scipy.stats import norm

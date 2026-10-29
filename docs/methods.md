@@ -415,7 +415,7 @@ print(result.diagnostics['prediction_weight'])
 
 ## Binary misclassification correction: RG and MLE
 
-Implements the binary methods benchmarked in [Efficient Inference for Noisy LLM-as-a-Judge Evaluation](https://arxiv.org/abs/2601.05420), Chen, Lu, Li, Guo & Li (2026), following [debiasLLMReporting](https://github.com/yiqunchen/debias-llm-as-a-judge), commit `632a89565883be25d94d38b7cd3ca78d62a491f4`. RG originates with Rogan & Gladen (1978). No new sampling component or dependency is needed.
+Implements the binary methods benchmarked in [Efficient Inference for Noisy LLM-as-a-Judge Evaluation](https://arxiv.org/abs/2601.05420), Chen, Lu, Li, Guo & Li (ICML 2026), following [debiasLLMReporting](https://github.com/yiqunchen/debias-llm-as-a-judge), commit `632a89565883be25d94d38b7cd3ca78d62a491f4`. RG originates with Rogan & Gladen (1978). No new sampling component or dependency is needed.
 
 ```python
 from openppi import Mean, PPIData, get_method
