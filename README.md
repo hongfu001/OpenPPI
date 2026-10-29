@@ -14,15 +14,6 @@ OpenPPI is a Python library for prediction-powered inference: valid confidence i
 
 # Overview
 
-## Supported targets
-
-| Target | Outcomes | Methods |
-| ------ | -------- | ------- |
-| `Mean()` | binary or continuous | all registered methods except OLS; RG and MLE require binary labels and judgments, and the cluster and multi-source containers currently require binary labels |
-| `LinearRegression(fit_intercept, focus)` | continuous | OLS, PPI, PPI++, PSPA (passive); ASI, RASI (active) |
-
-The tables below list the implemented methods. The last column is the name in the method registry, `openppi.get_method(name)`.
-
 ## Prediction-Powered Inference
 
 | Year | Title | Venue | Code Link | Registry name |
@@ -46,6 +37,16 @@ The tables below list the implemented methods. The last column is the name in th
 | 2025 | **[Robust Sampling for Active Statistical Inference](https://arxiv.org/abs/2511.08991)** | NeurIPS'25 | [Link](https://github.com/lphLeo/Robust-Active-Statistical-Inference) | `RASI` |
 | 2025 | **[Balanced Active Inference](https://papers.neurips.cc/paper_files/paper/2025/hash/4a3dadd6fd404a113e190e07380f0761-Abstract-Conference.html)** | NeurIPS'25 | [Link](https://github.com/Uninfty/Balanced_Active_Inference) | `BAI` |
 | 2024 | **[Active Statistical Inference](https://arxiv.org/abs/2403.03208)** | ICML'24 | [Link](https://github.com/tijana-zrnic/active-inference) | `ASI` |
+
+
+## Supported targets
+
+| Target | Outcomes | Methods |
+| ------ | -------- | ------- |
+| `Mean()` | binary or continuous | all registered methods except OLS; RG and MLE require binary labels and judgments, and the cluster and multi-source containers currently require binary labels |
+| `LinearRegression(fit_intercept, focus)` | continuous | OLS, PPI, PPI++, PSPA (passive); ASI, RASI (active) |
+
+The tables below list the implemented methods. The last column is the name in the method registry, `openppi.get_method(name)`.
 
 ## Methods as components
 
