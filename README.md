@@ -23,6 +23,7 @@ OpenPPI is a Python library for prediction-powered inference: valid confidence i
 | 2026 | **[Multiple-Prediction-Powered Inference](https://arxiv.org/abs/2603.27414)** | ICLR'26 | | `MultiPPI` |
 | 2026 | **[Cluster-Robust Prediction-Powered Inference](https://arxiv.org/abs/2610.09601)** | Arxiv | [Link](https://github.com/Michael-Howes/ppi_py) | `Cluster-PPI` |
 | 2026 | **[Predictions as Surrogates: Revisiting Surrogate Outcomes in the Age of AI](https://arxiv.org/abs/2501.09731)** | Biometrika | [Link](https://github.com/Wenlong2000/RePPI) | `RePPI` |
+| 2025 | **[Empirical Likelihood Meets Prediction-Powered Inference](https://arxiv.org/abs/2512.16363)** | Arxiv | | `EPI`, `EPI-CF` |
 | 2025 | **[FAB-PPI: Frequentist, Assisted by Bayes, Prediction-Powered Inference](https://arxiv.org/abs/2502.02363)** | ICML'25 | [Link](https://github.com/stefanocortinovis/fab-ppi) | `FAB-PPI` |
 | 2025 | **[Assumption-Lean and Data-Adaptive Post-Prediction Inference](https://jmlr.org/papers/v26/24-0056.html)** | JMLR | [Link](https://github.com/qlu-lab/pspa) | `PSPA` |
 | 2024 | **[Stratified Prediction-Powered Inference for Effective Hybrid Evaluation of Language Models](https://proceedings.neurips.cc/paper_files/paper/2024/hash/c9fcd02e6445c7dfbad6986abee53d0d-Abstract.html)** | NeurIPS'24 | | `StratPPI` |
@@ -50,7 +51,7 @@ OpenPPI is a Python library for prediction-powered inference: valid confidence i
 | Target | Outcomes | Methods |
 | ------ | -------- | ------- |
 | `Mean()` | binary or continuous | all registered methods except OLS; RG and MLE require binary labels and judgments, and the cluster and multi-source containers currently require binary labels |
-| `LinearRegression(fit_intercept, focus)` | continuous | OLS, PPI, PPI++, PSPA (passive); ASI, RASI (active) |
+| `LinearRegression(fit_intercept, focus)` | continuous | OLS, PPI, PPI++, PSPA, EPI, EPI-CF (passive); ASI, RASI (active) |
 
 The tables below list the implemented methods. The last column is the name in the method registry, `openppi.get_method(name)`.
 
@@ -62,6 +63,7 @@ The tables below list the implemented methods. The last column is the name in th
 | PPI | pre-split samples | `TwoSample(lam=1.0)` | `PPIData` / `RegressionData` |
 | PPITSAS | chronological blocks | `PPITSAS()` (mean only, Newey-West HAC) | `PPIData` |
 | PPI++ | pre-split samples | `TwoSample(lam='tuned')` | `PPIData` / `RegressionData` |
+| EPI / EPI-CF | pre-split samples | `EPI(auxiliary='basis' / 'crossfit')` | `PPIData` / `RegressionData` |
 | PSPA | pre-split samples | `PSPA()` | `PPIData` / `RegressionData` |
 | RG / MLE | pre-split samples | `RoganGladen()` / `MisclassificationMLE()` | `PPIData` |
 | CalPPI / LinearCalPPI | pre-split samples | `CalibratedPPI(calibration='isotonic' / 'linear')` | `PPIData` |

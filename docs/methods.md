@@ -20,6 +20,7 @@ openppi/                     # installable core (NumPy and SciPy only)
 │   ├── ipw.py               # IPW: f + R/pi (Y - f) (ASI, RASI, FTRL)
 │   ├── linear.py            # OLS and target-specific regression implementations
 │   ├── time_series.py       # PPITSAS, Newey-West Bartlett HAC (mean only)
+│   ├── empirical_likelihood.py # EPI: basis/cross-fitted EL weights, corrected mean LR and regression Wald
 │   ├── two_sample.py        # TwoSample(lam=1 | 'tuned' | number), tuned_lambda (PPI, PPI++)
 │   ├── misclassification.py # RoganGladen, MisclassificationMLE (hard binary judges)
 │   ├── stratified.py        # StratPPI (known population weights, within-stratum corrections)
@@ -69,6 +70,7 @@ A method is a sampling component plus an inference component. `openppi/methods.p
 | StratPPI | `stratified_allocate` | `StratPPI()` | `StratifiedPPIData` |
 | PPI | `None` | `TwoSample(lam=1.0)` | `PPIData` |
 | PPITSAS | `None` (chronological blocks) | `PPITSAS()` | `PPIData` |
+| EPI / EPI-CF | `None` | `EPI(auxiliary='basis' / 'crossfit')` | `PPIData` / `RegressionData` |
 | PPI++ | `None` | `TwoSample(lam='tuned')` | `PPIData` |
 | RG | `None` | `RoganGladen()` | `PPIData` |
 | MLE | `None` | `MisclassificationMLE()` | `PPIData` |
@@ -710,3 +712,97 @@ term. `time_series.py` runs chronological training and repeated pointwise
 inference; `ppitsas.ipynb` is an executed four-step example and 200-replicate
 comparison. Coverage Monte Carlo uncertainty is computed from independent
 replicate-level average coverage, preserving the dependence among locations.
+
+
+## EPI: empirical likelihood prediction-powered inference
+
+Reference: Wang, Wen & Zou, *Empirical Likelihood Meets Prediction-Powered
+Inference*, arXiv:2512.16363v1 (the supplied December 2025 paper).
+`EPI` implements the just-identified mean and least-squares cases of equations
+(4)-(5); it is an independent implementation of the paper, not a port of an
+author-provided codebase.
+
+```python
+from openppi import EPI, Mean, get_method
+
+result = EPI()(data, target=Mean())
+# Equivalent: get_method('EPI').inference(data, target=Mean())
+result_cf = EPI(auxiliary='crossfit', folds=2, random_state=0)(data, target=Mean())
+# Equivalent defaults: get_method('EPI-CF').inference(data, target=Mean())
+```
+
+For fixed basis functions, center the auxiliary features by their **pooled**
+labeled-plus-unlabeled mean. Maximize `sum(log(w_i))` subject to positive
+weights summing to one and `sum(w_i h_i)=0`. The mean estimate is `sum(w_i Y_i)`;
+regression solves the weighted labeled least-squares normal equations. The
+solver uses an SVD-scaled, damped Newton EL dual; exact redundant constraints
+are discarded. Infeasible convex-hull constraints and convergence failures
+raise `ValueError`, with no automatic fallback or outcome clipping.
+
+`degree=1` uses predictions alone for `PPIData`; with `RegressionData`, it
+also uses the raw covariates. `degree=2` includes all pairwise interactions and
+squares, and higher degrees include every monomial up to that degree. Scaling
+and centering inputs improves conditioning and preserves the polynomial span.
+Do not add too many basis terms relative to labeled sample size: the finite
+sample convex-hull problem can be infeasible even under valid population
+assumptions. Covariates can also be supplied in `RegressionData` when using a
+`Mean` target to reproduce the auxiliary design `(prediction, X)` in Section 4.1.
+
+Theorem 1 gives the covariance (divided by labeled count `n`):
+
+```
+gamma = n / (n + m)
+B = Cov(g, h) @ inv(Cov(h)) @ Cov(h, g)
+Cov(theta_hat) = inv(J) @ [Cov(g) - (1 - gamma) * B] @ inv(J).T / n
+```
+
+The implementation estimates `B` by an SVD projection of centered labeled
+scores onto centered auxiliary features, equivalent to the covariance formula
+with a pseudoinverse. For regression, `J` is the EL-weighted labeled Gram
+matrix. Safety is an asymptotic property under the paper's regularity
+conditions, not a finite sample guarantee.
+
+For a scalar mean, the default interval inverts the profile empirical
+likelihood ratio, with the finite-unlabeled correction from Theorem 2:
+
+```
+U = Var(Y) - B
+lambda = [Var(Y) - (1 - gamma) * B] / U
+cutoff = lambda * chi2.ppf(1 - alpha, df=1)
+```
+
+Both EL optimizations use the same fixed auxiliary constraints. Bisection
+finds the two likelihood-ratio endpoints inside the labeled outcome range.
+A nonpositive residual variance `U` raises for EL inference; callers can
+explicitly request `interval_method='wald'` for degenerate scores. The reported
+standard error always uses Theorem 1. Regression uses marginal Wald intervals
+and returns the full coefficient covariance; joint or profiled regression EL
+regions and weighted chi-square mixture quantiles are not implemented.
+
+`auxiliary='crossfit'` uses equation (5): split both samples into equal folds,
+train on labeled rows outside each inference fold, then center predictions
+using only that inference fold and its corresponding unlabeled fold. One EL
+optimization combines these centered constraints, rather than averaging
+separately weighted fold estimates. Both sample counts must be divisible by
+`folds`, with at least two observations per fold. For regression, each training
+fold first estimates a pilot coefficient and trains a learner on the supervised
+score at that pilot. The learner factory must create a fresh `fit(X, y)` /
+`predict(X)` object, returning a vector for a mean and an n-by-p score matrix
+for regression. The default is NumPy least squares on polynomial features;
+a suitable nonlinear learner can be provided without adding core dependencies.
+Within-fold centering removes arbitrary fold constants when estimating the
+auxiliary covariance. These inference formulas rely on the cross-fit learners
+converging to a common limiting function, as in Assumption 2.
+
+Diagnostics include positive calibrated `weights`, `auxiliary_moments`,
+`moment_residual`, `auxiliary_rank`, `labeled_fraction`, and (for mean EL)
+`el_ratio_scale`. They are also useful for inspecting the fitted empirical
+distribution, but there is currently no distribution-functional inference API.
+Over-identified scores, the known-population-moment regime, and the paper's
+full simulation/real-data study are not implemented.
+
+See [epi.ipynb](../examples/simulation/epi.ipynb) for a runnable comparison
+with PPI and PPI++, including covariates, regression, and a coverage experiment.
+Tests verify an independent primal optimization, an exact binary-auxiliary
+calibration case, finite-m covariance and LR endpoints, fold separation,
+regression normal equations, affine invariance, and repeated-sampling coverage.
