@@ -10,7 +10,7 @@
 
 </div>
 
-OpenPPI is a Python library for prediction-powered inference: valid confidence intervals that combine a small labeled sample with predictions from a fixed machine-learning model. It implements representative methods for passive PPI (labeled and unlabeled samples given) and for active inference (the method chooses which units to label under a budget), each validated against the paper and the official code. Each method is a **sampling component** (which rows to label) combined with an **inference component** (estimate and interval); `openppi.methods` records the published combinations, so `get_method('ASI')` returns its parts. Every inference component inherits from `InferenceMethod`, takes a validated data snapshot and returns an `InferenceResult` with the estimate, standard error, confidence interval and diagnostics. The core depends only on NumPy and SciPy. The codebase is under active construction; comments, issues, contributions and collaborations are all welcome!
+OpenPPI is a Python library for prediction-powered inference: valid confidence intervals that combine a small labeled sample with predictions from a fixed machine-learning model. It implements representative methods for passive PPI (labeled and unlabeled samples given) and for active inference (the method chooses which units to label under a budget), validated against published formulas and, where available, official code. The `LabelShift` extension additionally supports different source and target label distributions under an invariant `X|Y` model. Each method is a **sampling component** (which rows to label) combined with an **inference component** (estimate and interval); `openppi.methods` records the published combinations, so `get_method('ASI')` returns its parts. Every inference component inherits from `InferenceMethod`, takes a validated data snapshot and returns an `InferenceResult` with the estimate, standard error, confidence interval and diagnostics. The core depends only on NumPy and SciPy. The codebase is under active construction; comments, issues, contributions and collaborations are all welcome!
 
 # Overview
 
@@ -18,6 +18,7 @@ OpenPPI is a Python library for prediction-powered inference: valid confidence i
 
 | Year | Title | Venue | Code Link | Registry name |
 | ---- | ----- | ----- | --------- | -------------- |
+| 2026 | **[Efficient Inference under Label Shift in Unsupervised Domain Adaptation](https://jmlr.org/papers/v27/25-2717.html)** | JMLR | | `LabelShift` |
 | 2026 | **[Calibeating Prediction-Powered Inference](https://arxiv.org/abs/2604.21260)** | Arxiv | [Link](https://github.com/Larsvanderlaan/ppi-aipw) | `CalPPI`, `LinearCalPPI` |
 | 2026 | **[Efficient Inference for Noisy LLM-as-a-Judge Evaluation](https://arxiv.org/abs/2601.05420)** | ICML'26 | [Link](https://github.com/yiqunchen/debias-llm-as-a-judge) | `RG`, `MLE` |
 | 2026 | **[Multiple-Prediction-Powered Inference](https://arxiv.org/abs/2603.27414)** | ICLR'26 | | `MultiPPI` |
@@ -63,6 +64,7 @@ The tables below list the implemented methods. The last column is the name in th
 | PPI | pre-split samples | `TwoSample(lam=1.0)` | `PPIData` / `RegressionData` |
 | PPITSAS | chronological blocks | `PPITSAS()` (mean only, Newey-West HAC) | `PPIData` |
 | PPI++ | pre-split samples | `TwoSample(lam='tuned')` | `PPIData` / `RegressionData` |
+| LabelShift | source/target samples | `EfficientLabelShift()` (discrete or continuous mean) | `LabelShiftData` |
 | EPI / EPI-CF | pre-split samples | `EPI(auxiliary='basis' / 'crossfit')` | `PPIData` / `RegressionData` |
 | PSPA | pre-split samples | `PSPA()` | `PPIData` / `RegressionData` |
 | RG / MLE | pre-split samples | `RoganGladen()` / `MisclassificationMLE()` | `PPIData` |
@@ -259,3 +261,39 @@ If you find our repository useful for your research, please consider citing:
 - Pengfei Liu
 - Jiang Hu
 - Wang Zhou
+
+
+## Inference under label shift
+
+`LabelShift` estimates the **target** mean when labeled source and unlabeled
+target data satisfy `P(X|Y) = Q(X|Y)` but their label distributions differ.
+It implements Lee, Ma & Zhao (JMLR 2026), independently from the paper:
+
+```python
+from openppi import LabelShiftData, Mean, get_method
+
+record = LabelShiftData(source_labels, source_features, target_features)
+result = get_method('LabelShift').inference(record, target=Mean())
+```
+
+The default handles discrete labels. `EfficientLabelShift(outcome='continuous')`
+uses kernel smoothing and a regularized Fredholm solve for continuous outcomes;
+inspect the numerical diagnostics and choose smoothing/regularization parameters
+for the problem. A scalar source mean prediction alone is insufficient: the
+method estimates conditional expectations of functions of Y. The container can
+also accept source conditional class probabilities from an independent model.
+See the [method reference](docs/methods.md#labelshift-efficient-target-mean-inference)
+for assumptions, probability column ordering, and continuous-mode limitations.
+
+The extra simulation compares no-shift and label-shift cases on the same source
+population, with PPI and PPI++ as baselines. The notebook also shows the paper's
+continuous normal-shift design:
+
+- [label_shift.ipynb](examples/simulation/label_shift.ipynb)
+- Run from `examples/simulation/`:
+  `python label_shift.py --reps 300 --out results_label_shift`
+- Continuous sensitivity experiment:
+  `python label_shift.py --case continuous_shift --n 250 --m 250 --reps 50 --out results_label_shift_continuous`
+
+CSV output includes bias, RMSE, coverage, interval length, Monte Carlo coverage
+standard errors, numerical failure rates, and density-ratio clipping fractions.

@@ -8,9 +8,9 @@ so no state is shared between uses. `inference` is a configured, stateless estim
 from dataclasses import dataclass
 from functools import partial
 
-from .common.data import (ActiveData, BalancedActiveData, ClusteredPPIData, MultiPPIData,
+from .common.data import (ActiveData, BalancedActiveData, ClusteredPPIData, LabelShiftData, MultiPPIData,
                           PPIData, StratifiedPPIData)
-from .inference import (BAI, IPW, ActiveRegressionIPW, CalibratedPPI, ClusterRobustPPI, EPI, FABPPI, MisclassificationMLE, MultiPPI,
+from .inference import (BAI, IPW, ActiveRegressionIPW, CalibratedPPI, ClusterRobustPPI, EPI, EfficientLabelShift, FABPPI, MisclassificationMLE, MultiPPI,
                         OLS, PPITSAS, PSPA, RePPI, RoganGladen, StratPPI, TwoSample)
 from .sampling import (BalancedDesign, FTRLDesign, RobustDesign, Uncertainty, multi_allocate,
                        stratified_allocate)
@@ -42,6 +42,8 @@ METHODS = {recipe.name: recipe for recipe in (
            'Prediction-powered inference for time series across space'),
     Recipe('PPI++', None, TwoSample(lam='tuned'), PPIData,
            'PPI++: Efficient Prediction-Powered Inference'),
+    Recipe('LabelShift', None, EfficientLabelShift(), LabelShiftData,
+           'Efficient Inference under Label Shift in Unsupervised Domain Adaptation'),
     Recipe('EPI', None, EPI(), PPIData,
            'Empirical Likelihood Meets Prediction-Powered Inference'),
     Recipe('EPI-CF', None, EPI(auxiliary='crossfit'), PPIData,

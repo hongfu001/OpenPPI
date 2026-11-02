@@ -8,6 +8,7 @@ from .empirical_likelihood import EPI
 from .fab import FABPPI
 from .ipw import ActiveRegressionIPW, IPW
 from .misclassification import MisclassificationMLE, RoganGladen
+from .label_shift import EfficientLabelShift
 from .linear import OLS
 from .multi import MultiPPI
 from .recalibrated import BinnedMean, RePPI
@@ -15,5 +16,5 @@ from .stratified import StratPPI
 from .two_sample import TwoSample
 from .time_series import PPITSAS
 
-__all__ = ['EPI', 'InferenceMethod', 'PPITSAS', 'BAI', 'ClusterRobustPPI', 'FABPPI', 'IPW', 'MultiPPI', 'BinnedMean', 'RePPI',
+__all__ = ['EfficientLabelShift', 'EPI', 'InferenceMethod', 'PPITSAS', 'BAI', 'ClusterRobustPPI', 'FABPPI', 'IPW', 'MultiPPI', 'BinnedMean', 'RePPI',
            'ActiveRegressionIPW', 'OLS', 'CalibratedPPI', 'StratPPI', 'TwoSample', 'PSPA', 'RoganGladen', 'MisclassificationMLE']

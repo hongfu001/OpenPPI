@@ -262,3 +262,47 @@ class ActiveRegressionData(ActiveData):
             raise ValueError('Require a finite target-covariate matrix aligned with the full pool')
         x.setflags(write=False)
         object.__setattr__(self,'covariates',x)
+
+
+@dataclass(frozen=True)
+class LabelShiftData:
+    """Independent labeled source P and unlabeled target Q under label shift.
+
+    Require P(X|Y)=Q(X|Y) and target label support contained in source support.
+    These are modeling assumptions, not properties checked by this container.
+    Features can include fixed judge scores. Only source outcomes are stored.
+
+    Optional conditional_probabilities estimates P(Y|X) on all rows (source
+    first). For discrete labels, columns follow np.unique(labels). For
+    continuous labels, columns correspond to the source labels in row order,
+    representing a discrete approximation to the conditional distribution.
+    Use an independent fit or appropriate nuisance estimation scheme. If None,
+    the inference method fits Nadaraya-Watson conditional expectations.
+    """
+    labels: np.ndarray
+    labeled_features: np.ndarray
+    unlabeled_features: np.ndarray
+    conditional_probabilities: np.ndarray | None = None
+
+    def __post_init__(self):
+        for name in ('labels', 'labeled_features', 'unlabeled_features'):
+            array = np.array(getattr(self, name), dtype=float, copy=True)
+            ndim = 1 if name == 'labels' else 2
+            if array.ndim != ndim or len(array) < 2 or not np.isfinite(array).all():
+                raise ValueError('Label shift requires finite labels and feature matrices with >= 2 rows')
+            if ndim == 2 and array.shape[1] == 0:
+                raise ValueError('Label shift features must have at least one column')
+            array.setflags(write=False)
+            object.__setattr__(self, name, array)
+        if len(self.labels) != len(self.labeled_features):
+            raise ValueError('Source labels and features must align')
+        if self.labeled_features.shape[1] != self.unlabeled_features.shape[1]:
+            raise ValueError('Source and target feature columns must align')
+        if self.conditional_probabilities is not None:
+            probabilities = np.array(self.conditional_probabilities, dtype=float, copy=True)
+            if probabilities.ndim != 2 or probabilities.shape[0] != len(self.labels) + len(self.unlabeled_features) or probabilities.shape[1] == 0:
+                raise ValueError('Conditional probabilities need source-plus-target rows and at least one column')
+            if not np.isfinite(probabilities).all() or (probabilities < 0).any() or not np.allclose(probabilities.sum(axis=1), 1., rtol=0, atol=1e-10):
+                raise ValueError('Conditional probabilities must be nonnegative, finite and sum to one per row')
+            probabilities.setflags(write=False)
+            object.__setattr__(self, 'conditional_probabilities', probabilities)

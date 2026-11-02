@@ -20,6 +20,7 @@ openppi/                     # installable core (NumPy and SciPy only)
 │   ├── ipw.py               # IPW: f + R/pi (Y - f) (ASI, RASI, FTRL)
 │   ├── linear.py            # OLS and target-specific regression implementations
 │   ├── time_series.py       # PPITSAS, Newey-West Bartlett HAC (mean only)
+│   ├── label_shift.py         # EfficientLabelShift: source/target mean, discrete and continuous labels
 │   ├── empirical_likelihood.py # EPI: basis/cross-fitted EL weights, corrected mean LR and regression Wald
 │   ├── two_sample.py        # TwoSample(lam=1 | 'tuned' | number), tuned_lambda (PPI, PPI++)
 │   ├── misclassification.py # RoganGladen, MisclassificationMLE (hard binary judges)
@@ -70,6 +71,7 @@ A method is a sampling component plus an inference component. `openppi/methods.p
 | StratPPI | `stratified_allocate` | `StratPPI()` | `StratifiedPPIData` |
 | PPI | `None` | `TwoSample(lam=1.0)` | `PPIData` |
 | PPITSAS | `None` (chronological blocks) | `PPITSAS()` | `PPIData` |
+| LabelShift | `None` | `EfficientLabelShift()` | `LabelShiftData` |
 | EPI / EPI-CF | `None` | `EPI(auxiliary='basis' / 'crossfit')` | `PPIData` / `RegressionData` |
 | PPI++ | `None` | `TwoSample(lam='tuned')` | `PPIData` |
 | RG | `None` | `RoganGladen()` | `PPIData` |
@@ -806,3 +808,146 @@ with PPI and PPI++, including covariates, regression, and a coverage experiment.
 Tests verify an independent primal optimization, an exact binary-auxiliary
 calibration case, finite-m covariance and LR endpoints, fold separation,
 regression normal equations, affine invariance, and repeated-sampling coverage.
+
+
+## LabelShift: efficient target-mean inference
+
+Reference: Lee, Ma & Zhao, *Efficient Inference under Label Shift in Unsupervised
+Domain Adaptation*, JMLR 27 (2026), 25-2717. Independent implementation of
+Algorithms 1-2, the optional density-ratio refinement in Section 3.2, and the
+discrete specialization in Section 5. The current target is `Mean` only,
+including numeric multiclass outcomes and continuous outcomes; the paper's
+general estimating equations, regression targets, and variance estimation as
+a target functional are not yet exposed.
+
+The model differs from ordinary two-sample PPI: the source is P, target is Q,
+`P(X|Y)=Q(X|Y)`, and target label support must lie inside source label support.
+The target parameter is `E_Q[Y]`, not the source mean. These assumptions and
+identifiability/completeness of the conditional operator are essential. Features
+can include fixed ML/judge scores. Arbitrary covariate or conditional shifts are
+not covered, and same-distribution PPI validity does not extend automatically.
+
+```python
+from openppi import LabelShiftData, EfficientLabelShift, Mean, get_method
+
+record = LabelShiftData(source_y, source_x, target_x)
+result = get_method('LabelShift').inference(record, target=Mean())
+# Continuous mode is explicit:
+# result = EfficientLabelShift(outcome='continuous')(record, target=Mean(outcome_type='continuous'))
+```
+
+Unlike `PPIData`, this container holds covariates rather than only conditional
+mean predictions: Algorithm 2 needs `E_P[a(Y)|X]` and functions of the density
+ratio, which cannot generally be recovered from `E_P[Y|X]` alone. By default,
+source-standardized covariates define Gaussian Nadaraya-Watson conditional
+expectations fitted from the source. The bandwidth is configurable, defaulting
+to `3*n**(-1/7)` as in the paper's numerical study. The source rows participate
+in this nuisance fit, as in a kernel plug-in estimator; this is not a
+cross-fitted estimator. Kernel nuisance convergence conditions must hold for
+the paper's asymptotic claims to apply, especially with many feature columns.
+
+Optional `conditional_probabilities` has source rows first, followed by target
+rows. Each row must be nonnegative and sum to one. For discrete outcomes its
+columns are `np.unique(source_y)` in sorted order; provide probabilities from
+an independently fitted source-domain classifier or an appropriate nuisance
+estimation procedure. For continuous outcomes, its n columns correspond to
+the n source label values **in original row order**, a discrete-support
+approximation to the conditional distribution, not a scalar mean predictor.
+Both supplied and default conditional models must contain enough information
+to identify changes in the label distribution.
+
+### Algorithm
+
+Let C be the matrix for the conditional expectation operator, `c=n/m`, and
+rho the working label density ratio. Define
+
+```
+B[i,j] = C[i,j] * rho[j] / sum_k(C[i,k] * (rho[k]**2 + c*rho[k]))
+A = S @ B_source
+```
+
+S computes source `E[.|Y]`: exact within-class averages for discrete labels,
+or Gaussian kernel smoothing in Y for continuous labels. Solving `A @ a = s`
+yields the auxiliary prediction `b = B @ a` for a label functional s(Y).
+Algorithm 1 then estimates
+
+```
+theta_s = mean_target(b) + mean_source(rho(Y) * (s(Y) - b))
+```
+
+First apply this operation to class indicators (discrete) or Gaussian density
+kernels `K_h(Y-y0)` (continuous) and divide by source class probabilities or
+kernel densities, obtaining the initial estimated ratio. The working ratio
+defaults to one; `initial_ratio` may supply a positive function of the label
+support. `refine_ratio=True` repeats the density-ratio step with this estimated
+ratio, implementing Section 3.2. Finally, rebuild the operator with the estimated
+ratio and apply it to s(Y)=Y, as in equation (16). No target outcomes are needed.
+
+The mean SE estimates the source and target terms of the influence function:
+
+```
+SE**2 = Var_source[rho(Y) * (Y - b(X))] / n + Var_target[b(X)] / m
+```
+
+The result uses a two-sided Wald interval. Theorem 12's semiparametric efficiency
+requires consistent density-ratio estimation and the stated conditional-nuisance
+rates, in addition to the support, smoothness, and identification assumptions.
+The method need not outperform same-distribution PPI in the no-shift case:
+it permits a larger statistical model where the label distributions may differ.
+
+### Numerical behavior and limits
+
+Discrete mode uses a full-rank matrix solve, with `rcond=1e-10` by default.
+Uninformative conditional probabilities or nearly singular class operators
+raise `ValueError`. Every source class needs at least two observations for
+variance estimation. Negative or zero estimated target densities also raise by
+default, rather than silently replacing the method with PPI or RG.
+
+Continuous mode evaluates Gaussian density kernels at the source label values
+without binning Y. The default outcome bandwidths are `h=.5*n**(-1/16)` for
+the target density and `l=1.5*n**(-1/3)` for reverse conditional smoothing, in
+original outcome units. The Fredholm operator is ill-conditioned in general;
+we use truncated SVD (`rcond=1e-3` by default) and report retained rank,
+condition number, and the mean-functional equation residual. These defaults
+are practical numerical choices, not a guarantee of the paper's asymptotic
+smoothing/inversion requirements. Fixed regularization may retain approximation
+bias; tune bandwidths and `rcond` and check sensitivity before drawing conclusions.
+Storage is O((n+m)*n+n**2), with dense n-by-n factorizations, so this mode is
+intended for moderate source sample sizes.
+
+`ratio_bounds=(lower, upper)` explicitly clips estimated ratios before
+normalizing their source average to one; it requires `0<lower<1<upper`.
+This is a numerical stabilization beyond the paper's ideal estimator.
+Diagnostics expose `ratio_clipped_fractions`; when clipping is frequent, the
+nominal Wald interval alone does not demonstrate valid inference. Continuous
+simulation examples opt into `(0.01, 100)` and export this diagnostic. The
+binary benchmark uses the untruncated estimator.
+
+Diagnostics also include the initial/final ratios, source-row ratios,
+estimated target probabilities (discrete), `operator_solves`,
+`fredholm_residual`, auxiliary predictions, and separate source/target variance
+contributions. Numerical failures are explicit and simulation exports keep
+failed replications. Summary `coverage` is among successful runs;
+`coverage_all` counts failed runs as uncovered, with a separate `failure_rate`.
+
+### Additional simulation case
+
+[Dataset generator](../examples/simulation/dataset/label_shift_sim.py),
+[CLI experiment](../examples/simulation/label_shift.py), and
+[executed notebook](../examples/simulation/label_shift.ipynb) provide:
+
+1. A no-shift control, source and target prevalence both 0.3.
+2. A label-shift case, source prevalence 0.3 and target prevalence 0.7.
+   Both use `X|Y ~ N(separation*(2Y-1), 1)`; the predictor is the fixed source
+   Bayes posterior, with all methods receiving the same score information.
+3. A continuous case from Section 6: source Y~N(0,2), target Y~N(1,1), and
+   `X|Y ~ N_3((-0.5,0.5,1)*Y, I)`. PPI receives the fixed source Bayes mean;
+   LabelShift fits the required conditional operator with NW kernels.
+
+These are illustrative experiments, not a reproduction of the paper's entire
+simulation study. The binary benchmark isolates shift correction from model
+training errors; its posterior predictor is known from the DGP, not learned
+from target labels. Tests additionally cover default kernel fitting, multiclass
+labels, direct class-indicator equations, density-ratio refinement, continuous
+kernel equations, exact recovery with a known conditional operator, and
+shifted/unshifted repeated-sampling coverage.
